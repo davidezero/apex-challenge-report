@@ -738,7 +738,7 @@ if __name__ == "__main__":
         [sg.Text("URL per il check-in:", size=(18,1)), sg.Text("", key='-URL_CHECKIN-', size=(40,1))],
         [sg.HorizontalSeparator()],
         [sg.Text("Genera Report e Altro", font=("Helvetica", 12))],
-        [sg.Button("Genera e Carica Report HTML", key='-GENERA_REPORT_E_CARICA-'), sg.Button("Condividi su WhatsApp", key='-WHATSAPP-'), sg.Button("Apri Report Online", key='-APRI_REPORT-'), sg.Button("Visualizza Cronologia", key='-CRONOLOGIA-')],
+        [sg.Button("Genera e Carica Report HTML", key='-GENERA_REPORT_E_CARICA-'), sg.Button("Condividi su WhatsApp", key='-WHATSAPP-'), sg.Button("Visualizza Cronologia", key='-CRONOLOGIA-')],
         [sg.HorizontalSeparator()],
         [sg.Button("Esci", key='-ESCI-')]
     ]
@@ -851,12 +851,6 @@ if __name__ == "__main__":
                 messaggio = f"Ciao a tutti! La classifica Apex Challenge è stata aggiornata! Cliccate qui per vederla in tempo reale: {URL_REPORT_ONLINE}"
                 whatsapp_url = f"https://api.whatsapp.com/send?text={quote(messaggio)}"
                 webbrowser.open(whatsapp_url)
-            else:
-                sg.popup_ok("Devi prima inserire l'URL pubblico del tuo report nel codice, nella variabile 'URL_REPORT_ONLINE'.")
-
-        if event == '-APRI_REPORT-':
-            if URL_REPORT_ONLINE:
-                webbrowser.open(URL_REPORT_ONLINE)
             else:
                 sg.popup_ok("Devi prima inserire l'URL pubblico del tuo report nel codice, nella variabile 'URL_REPORT_ONLINE'.")
         
