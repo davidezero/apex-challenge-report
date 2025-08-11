@@ -8,7 +8,7 @@
                 <style>
                     body {
                         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                        background: linear-gradient(to right, #e3f2fd, #ffffff);
+                        background-color: #fff; /* Sfondo bianco */
                         color: #333;
                         margin: 0;
                         padding: 20px;
@@ -23,23 +23,24 @@
                     }
                     .logo-container {
                         text-align: center;
-                        margin-bottom: 20px;
+                        margin-bottom: 10px; /* Alzato un po' il logo */
                     }
                     .logo {
                         max-width: 250px;
                         height: auto;
+                    }
+                    #countdown-timer {
+                        text-align: center;
+                        font-size: 2em;
+                        color: #0d47a1; /* Colore blu */
+                        font-weight: bold;
+                        margin: 20px 0;
                     }
                     h1 {
                         text-align: center;
                         color: #0d47a1;
                         text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
                         font-size: 2.5em;
-                        margin-bottom: 5px;
-                    }
-                    h2 {
-                        text-align: center;
-                        color: #555;
-                        font-size: 1.5em;
                         margin-bottom: 30px;
                     }
                     .classifica-item {
@@ -169,14 +170,14 @@
                     <div class="logo-container">
                         <img src="logo_ubroker.png" alt="Logo Ubroker" class="logo">
                     </div>
+                    <div id="countdown-timer"></div>
                     <h1>CLASSIFICA APEX CHALLENGE</h1>
-                    <h2>Classifica Generale</h2>
                     <div class="classifica-generale">
             
                         <div class="classifica-item primo">
                             <span class="posizione">🏆</span>
                             <div class="dettagli">
-                                <span class="nome">Igor Previtera</span>
+                                <span class="nome">Claudio Igor Previtera</span>
                                 <div class="barra-progresso-container">
                                     <div class="barra-progresso primo" style="width: 100.0%;"></div>
                                 </div>
@@ -310,7 +311,7 @@
                         <h2>Riepilogo Punti per Collaboratore</h2>
             
                     <div class="collaboratore-dettagli">
-                        <h3>Igor Previtera (Totale: 150 punti)</h3>
+                        <h3>Claudio Igor Previtera (Totale: 150 punti)</h3>
                         <ul>
                 
                         <li>- Azione: Ospite step one (+25 punti) - Data: 2025-08-06 23:22:40</li>
@@ -437,6 +438,34 @@
                 
                     </div>
                 </div>
+                <script>
+                    // Imposta la data e l'ora di chiusura del contest (23 ottobre 2025)
+                    var countDownDate = new Date("Oct 23, 2025 23:59:59").getTime();
+
+                    // Aggiorna il countdown ogni 1 secondo
+                    var x = setInterval(function() {
+                      // Ottieni la data e l'ora attuali
+                      var now = new Date().getTime();
+
+                      // Trova la distanza tra adesso e la data del countdown
+                      var distance = countDownDate - now;
+
+                      // Calcola giorni, ore, minuti e secondi
+                      var days = Math.floor(distance / (1000 * 60 * 60 * 24));
+                      var hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                      var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                      var seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+                      // Mostra il risultato nell'elemento con id="countdown-timer"
+                      document.getElementById("countdown-timer").innerHTML = days + "g " + hours + "h " + minutes + "m " + seconds + "s ";
+
+                      // Se il countdown è finito, scrivi un messaggio
+                      if (distance < 0) {
+                        clearInterval(x);
+                        document.getElementById("countdown-timer").innerHTML = "Il contest è terminato!";
+                      }
+                    }, 1000);
+                </script>
             </body>
             </html>
             
