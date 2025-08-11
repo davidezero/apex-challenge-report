@@ -4,7 +4,46 @@ import webbrowser
 from datetime import datetime
 import PySimpleGUI as sg
 from urllib.parse import quote
-import subprocess  # <<<--- AGGIUNTA QUESTA LIBRERIA
+import subprocess
+import qrcode
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+from urllib.parse import urlparse, parse_qs
+from pyngrok import ngrok
+
+# --- Funzione globale per il caricamento su GitHub ---
+def carica_su_github():
+    """
+    Carica i file del report HTML su GitHub.
+    Gestisce in modo più robusto gli errori di Git.
+    """
+    try:
+        # Aggiunge i file al repository Git
+        # Usiamo "." per aggiungere tutti i file modificati, inclusi index.html e logo.
+        subprocess.run(["git", "add", "."], check=True, capture_output=True, text=True, timeout=30)
+        
+        # Esegue il commit con un messaggio standard
+        subprocess.run(["git", "commit", "-m", "Aggiornata classifica"], check=True, capture_output=True, text=True, timeout=30)
+        
+        # Esegue il push al repository remoto
+        subprocess.run(["git", "push"], check=True, capture_output=True, text=True, timeout=60)
+        
+        return True
+    except subprocess.CalledProcessError as e:
+        error_message = (
+            f"Errore durante l'aggiornamento su GitHub:\n"
+            f"Comando fallito: {' '.join(e.cmd)}\n"
+            f"Codice di uscita: {e.returncode}\n"
+            f"Messaggio di errore:\n{e.stderr}"
+        )
+        sg.popup_error(error_message)
+    except FileNotFoundError:
+        sg.popup_error("Errore: Git non è stato trovato. Assicurati che sia installato e configurato correttamente.")
+    except subprocess.TimeoutExpired:
+        sg.popup_error("Errore: L'operazione Git è andata in timeout. Prova a verificare la tua connessione internet o le dimensioni del repository.")
+    except Exception as e:
+        sg.popup_error(f"Si è verificato un errore inaspettato durante il caricamento su GitHub: {e}")
+    return False
 
 class ClassificaManager:
     def __init__(self, filename="classifica_apex_data.json"):
@@ -14,23 +53,107 @@ class ClassificaManager:
         self.filename = filename
         self.dati_collaboratori = {}
         self.punti_azioni = {
+            "Meeting day": 50,
             "Change your life": 50,
             "Incentive da 5": 50,
-            "Meeting day": 50,
             "Collaboratore diretto": 100,
             "Ospite step one": 25,
         }
         self.carica_dati()
 
+    def salva_cronologia(self):
+        """
+        Salva una copia dei dati della classifica in un file di cronologia,
+        con un timestamp per ogni salvataggio.
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        history_filename = f"cronologia/classifica_apex_data_{timestamp}.json"
+        
+        if not os.path.exists("cronologia"):
+            os.makedirs("cronologia")
+
+        with open(history_filename, 'w') as f:
+            json.dump(self.dati_collaboratori, f, indent=4)
+
+    def standardizza_nome(self, nome_completo):
+        """
+        Standardizza un nome e cognome, rendendoli uniformi (es. '  igor Claudio  previtera' -> 'Igor Claudio Previtera').
+        La funzione rimuove gli spazi in eccesso e mette ogni parola in maiuscolo, senza cambiarne l'ordine.
+        """
+        return " ".join(word.capitalize() for word in nome_completo.strip().split())
+
+    def cerca_collaboratore_flessibile(self, nome_input):
+        """
+        Cerca un collaboratore esistente in modo flessibile (ricerca per sottostringa).
+        Restituisce il nome standardizzato del collaboratore trovato o None se non c'è corrispondenza.
+        """
+        nome_input_minuscolo = nome_input.lower()
+        for nome_esistente in self.dati_collaboratori.keys():
+            if nome_input_minuscolo in nome_esistente.lower():
+                return nome_esistente
+        return None
+
+    def modifica_nome_collaboratore(self, nome_attuale, nuovo_nome):
+        """
+        Modifica il nome di un collaboratore e aggiorna i dati.
+        """
+        nome_attuale_std = self.standardizza_nome(nome_attuale)
+        nuovo_nome_std = self.standardizza_nome(nuovo_nome)
+
+        if nome_attuale_std in self.dati_collaboratori:
+            self.dati_collaboratori[nuovo_nome_std] = self.dati_collaboratori.pop(nome_attuale_std)
+            self.salva_dati()
+            self.salva_cronologia()
+            self.genera_report_html_e_carica()
+            return True
+        return False
+        
+    def trova_ultimo_backup(self):
+        """
+        Trova il file di backup più recente nella cartella cronologia.
+        Restituisce il percorso completo del file o None se non ne trova.
+        """
+        history_folder = "cronologia"
+        if not os.path.exists(history_folder):
+            return None
+        
+        list_of_files = [os.path.join(history_folder, f) for f in os.listdir(history_folder) if f.startswith("classifica_apex_data_")]
+        if not list_of_files:
+            return None
+            
+        latest_file = max(list_of_files, key=os.path.getctime)
+        return latest_file
+
     def carica_dati(self):
         """
         Carica i dati della classifica da un file JSON.
+        Se il caricamento fallisce, tenta un ripristino automatico dall'ultimo backup.
         """
+        caricato_con_successo = False
         if os.path.exists(self.filename):
             try:
                 with open(self.filename, 'r') as f:
                     self.dati_collaboratori = json.load(f)
+                caricato_con_successo = True
             except json.JSONDecodeError:
+                # Il file principale è corrotto, tenta il ripristino
+                sg.popup_error(f"Errore: Il file '{self.filename}' è corrotto. Tentativo di ripristino automatico dall'ultimo backup...")
+                
+        if not caricato_con_successo:
+            ultimo_backup = self.trova_ultimo_backup()
+            if ultimo_backup:
+                try:
+                    with open(ultimo_backup, 'r') as f:
+                        self.dati_collaboratori = json.load(f)
+                    
+                    # Sovrascrivi il file principale con i dati del backup
+                    self.salva_dati()
+                    sg.popup_ok(f"Ripristino automatico riuscito!\nI dati sono stati recuperati da:\n'{os.path.basename(ultimo_backup)}'")
+                except (json.JSONDecodeError, FileNotFoundError):
+                    sg.popup_error("Errore: Impossibile caricare il backup. La classifica verrà inizializzata vuota.")
+                    self.dati_collaboratori = {}
+            else:
+                sg.popup_ok("Nessun backup trovato. La classifica verrà inizializzata vuota.")
                 self.dati_collaboratori = {}
 
     def salva_dati(self):
@@ -40,36 +163,46 @@ class ClassificaManager:
         with open(self.filename, 'w') as f:
             json.dump(self.dati_collaboratori, f, indent=4)
 
-    def aggiungi_punti(self, nome_collaboratore, azione):
+    def aggiungi_punti(self, nome_collaboratore_input, azione):
         """
         Aggiunge un'azione completata a un collaboratore.
+        Il collaboratore viene cercato in modo flessibile.
         """
-        nome = nome_collaboratore.strip().title()
-        
         punti_da_aggiungere = self.punti_azioni.get(azione, 0)
         
         if punti_da_aggiungere == 0:
             return f"Errore: Azione '{azione}' non riconosciuta."
 
-        if nome not in self.dati_collaboratori:
-            self.dati_collaboratori[nome] = []
-        
-        self.dati_collaboratori[nome].append({
-            "azione": azione,
-            "punti": punti_da_aggiungere,
-            "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-        
-        self.salva_dati()
-        self.genera_report_html() # Genera il report automaticamente
-        return f"Aggiunta l'azione '{azione}' a {nome} (+{punti_da_aggiungere} punti)."
+        nome_standardizzato = self.cerca_collaboratore_flessibile(nome_collaboratore_input)
+
+        if nome_standardizzato:
+            self.dati_collaboratori[nome_standardizzato].append({
+                "azione": azione,
+                "punti": punti_da_aggiungere,
+                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+            self.salva_dati()
+            self.salva_cronologia()
+            self.genera_report_html_e_carica()
+            return f"Aggiunta l'azione '{azione}' a {nome_standardizzato} (+{punti_da_aggiungere} punti)."
+        else:
+            nome_nuovo = self.standardizza_nome(nome_collaboratore_input)
+            self.dati_collaboratori[nome_nuovo] = [{
+                "azione": azione,
+                "punti": punti_da_aggiungere,
+                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }]
+            self.salva_dati()
+            self.salva_cronologia()
+            self.genera_report_html_e_carica()
+            return f"Nuovo collaboratore '{nome_nuovo}' aggiunto con l'azione '{azione}' (+{punti_da_aggiungere} punti)."
 
     def elimina_riga(self, nome_collaboratore, indice_riga):
         """
         Elimina una riga specifica dall'elenco delle azioni di un collaboratore.
         L'indice della riga parte da 0.
         """
-        nome = nome_collaboratore.strip().title()
+        nome = self.standardizza_nome(nome_collaboratore)
         
         if nome not in self.dati_collaboratori:
             return f"Errore: Il collaboratore '{nome}' non esiste."
@@ -79,7 +212,8 @@ class ClassificaManager:
 
         azione_rimossa = self.dati_collaboratori[nome].pop(indice_riga)
         self.salva_dati()
-        self.genera_report_html() # Genera il report automaticamente
+        self.salva_cronologia()
+        self.genera_report_html_e_carica()
         
         return f"Rimossa l'azione '{azione_rimossa['azione']}' del collaboratore {nome} (rimossi {azione_rimossa['punti']} punti)."
         
@@ -87,16 +221,16 @@ class ClassificaManager:
         """
         Elimina un collaboratore e tutti i suoi dati dalla classifica.
         """
-        nome = nome_collaboratore.strip().title()
+        nome = self.standardizza_nome(nome_collaboratore)
         if nome in self.dati_collaboratori:
             del self.dati_collaboratori[nome]
             self.salva_dati()
-            self.genera_report_html() # Genera il report automaticamente
+            self.salva_cronologia()
+            self.genera_report_html_e_carica()
             return f"Collaboratore '{nome}' eliminato con successo."
         else:
             return f"Errore: Il collaboratore '{nome}' non esiste."
-
-
+        
     def calcola_punteggio_totale(self, nome_collaboratore):
         """
         Calcola il punteggio totale di un collaboratore.
@@ -125,7 +259,7 @@ class ClassificaManager:
         """
         Restituisce un report dettagliato delle azioni di un collaboratore come lista di stringhe.
         """
-        nome = nome_collaboratore.strip().title()
+        nome = self.standardizza_nome(nome_collaboratore)
         if nome not in self.dati_collaboratori:
             return [f"Errore: Il collaboratore '{nome}' non esiste."]
         
@@ -143,12 +277,11 @@ class ClassificaManager:
     def genera_report_html(self):
         """
         Genera un report dettagliato in un file HTML con una grafica personalizzata,
-        aggiungendo il logo Ubroker e le colorazioni aziendali e rendendolo responsive.
+        inclusi un countdown e la classifica dei collaboratori.
         """
-        # Definisco i colori di Ubroker
-        colore_primario = "#0d47a1"  # Blu Ubroker
-        colore_secondario = "#ff6f00" # Arancione/Oro Ubroker
-
+        colore_primario = "#0d47a1"
+        colore_secondario = "#ff6f00"
+        
         if not self.dati_collaboratori:
             report_content = f"""
             <!DOCTYPE html>
@@ -157,6 +290,9 @@ class ClassificaManager:
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Classifica Apex Challenge</title>
+                <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+                <meta http-equiv="Pragma" content="no-cache">
+                <meta http-equiv="Expires" content="0">
                 <style>
                     body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
                 </style>
@@ -183,7 +319,7 @@ class ClassificaManager:
                 <style>
                     body {{
                         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                        background: linear-gradient(to right, #e3f2fd, #ffffff);
+                        background-color: #fff; /* Sfondo bianco */
                         color: #333;
                         margin: 0;
                         padding: 20px;
@@ -198,23 +334,24 @@ class ClassificaManager:
                     }}
                     .logo-container {{
                         text-align: center;
-                        margin-bottom: 20px;
+                        margin-bottom: 10px; /* Alzato un po' il logo */
                     }}
                     .logo {{
                         max-width: 250px;
                         height: auto;
+                    }}
+                    #countdown-timer {{
+                        text-align: center;
+                        font-size: 2em;
+                        color: {colore_primario}; /* Colore blu */
+                        font-weight: bold;
+                        margin: 20px 0;
                     }}
                     h1 {{
                         text-align: center;
                         color: {colore_primario};
                         text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
                         font-size: 2.5em;
-                        margin-bottom: 5px;
-                    }}
-                    h2 {{
-                        text-align: center;
-                        color: #555;
-                        font-size: 1.5em;
                         margin-bottom: 30px;
                     }}
                     .classifica-item {{
@@ -307,7 +444,6 @@ class ClassificaManager:
                     .collaboratore-dettagli li:last-child {{
                         border-bottom: none;
                     }}
-
                     /* Media Queries per la visualizzazione mobile */
                     @media (max-width: 768px) {{
                         .classifica-item {{
@@ -345,10 +481,11 @@ class ClassificaManager:
                     <div class="logo-container">
                         <img src="logo_ubroker.png" alt="Logo Ubroker" class="logo">
                     </div>
+                    <div id="countdown-timer"></div>
                     <h1>CLASSIFICA APEX CHALLENGE</h1>
-                    <h2>Classifica Generale</h2>
                     <div class="classifica-generale">
             """
+            
             posizione = 1
             for nome, punteggio in classifica_ordinata:
                 percentuale = (punteggio / max_punteggio) * 100 if max_punteggio > 0 else 0
@@ -408,6 +545,34 @@ class ClassificaManager:
             html_content += """
                     </div>
                 </div>
+                <script>
+                    // Imposta la data e l'ora di chiusura del contest (23 ottobre 2025)
+                    var countDownDate = new Date("Oct 23, 2025 23:59:59").getTime();
+
+                    // Aggiorna il countdown ogni 1 secondo
+                    var x = setInterval(function() {
+                      // Ottieni la data e l'ora attuali
+                      var now = new Date().getTime();
+
+                      // Trova la distanza tra adesso e la data del countdown
+                      var distance = countDownDate - now;
+
+                      // Calcola giorni, ore, minuti e secondi
+                      var days = Math.floor(distance / (1000 * 60 * 60 * 24));
+                      var hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                      var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                      var seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+                      // Mostra il risultato nell'elemento con id="countdown-timer"
+                      document.getElementById("countdown-timer").innerHTML = days + "g " + hours + "h " + minutes + "m " + seconds + "s ";
+
+                      // Se il countdown è finito, scrivi un messaggio
+                      if (distance < 0) {
+                        clearInterval(x);
+                        document.getElementById("countdown-timer").innerHTML = "Il contest è terminato!";
+                      }
+                    }, 1000);
+                </script>
             </body>
             </html>
             """
@@ -419,36 +584,166 @@ class ClassificaManager:
         
         return f"Report HTML generato con successo. Lo trovi nel file '{report_filename}'."
 
-# --- INTERFACCIA GRAFICA CON PYSIMPLEGUI ---
+    def genera_report_html_e_carica(self):
+        """Genera il report HTML e lo carica su GitHub."""
+        self.genera_report_html()
+        carica_su_github()
+
+    def aggiungi_punti_da_checkin(self, nome_completo):
+        """
+        Aggiunge 50 punti per il "Meeting day" a un collaboratore,
+        solo se non ha già ricevuto punti per la stessa azione oggi.
+        Gestisce anche la standardizzazione del nome per evitare duplicati.
+        """
+        oggi_str = datetime.now().strftime("%Y-%m-%d")
+        
+        nome_standardizzato = self.standardizza_nome(nome_completo)
+
+        if nome_standardizzato not in self.dati_collaboratori:
+            self.dati_collaboratori[nome_standardizzato] = []
+        
+        for azione in self.dati_collaboratori[nome_standardizzato]:
+            if azione['azione'] == 'Meeting day' and azione['data'].startswith(oggi_str):
+                return f"Errore: {nome_standardizzato} ha già effettuato il check-in per il Meeting day di oggi."
+        
+        self.dati_collaboratori[nome_standardizzato].append({
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        
+        self.salva_dati()
+        self.salva_cronologia()
+        self.genera_report_html_e_carica()
+        return f"Aggiunti 50 punti a {nome_standardizzato} per il Meeting day."
+
+# --- Gestione server web e QR code ---
+class MyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            with open('checkin.html', 'r') as file:
+                self.wfile.write(file.read().encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"404 Not Found")
+
+    def do_POST(self):
+        if self.path == '/submit_checkin':
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            dati_form = parse_qs(post_data)
+            
+            nome_collaboratore = dati_form.get('nome', [''])[0]
+
+            if nome_collaboratore:
+                messaggio = classifica_manager.aggiungi_punti_da_checkin(nome_collaboratore)
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.end_headers()
+                
+                risposta_html = f"""
+                <!DOCTYPE html>
+                <html lang="it">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Check-in Apex Challenge</title>
+                    <style>
+                        body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
+                        h1 {{ color: #0d47a1; }}
+                        p {{ font-size: 1.2em; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Risultato del Check-in</h1>
+                    <p>{messaggio}</p>
+                    <a href="/">Torna al modulo di check-in</a>
+                </body>
+                </html>
+                """
+                self.wfile.write(risposta_html.encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Errore: Nome non fornito.")
+        else:
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"404 Not Found")
+
+def run_server():
+    server_address = ('', 8000)
+    httpd = HTTPServer(server_address, MyHandler)
+    httpd.serve_forever()
+
+def genera_qrcode_meeting_day():
+    try:
+        ngrok.kill()
+        tunnel = ngrok.connect(addr="8000", proto="http")
+        public_url = tunnel.public_url
+
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(public_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        filename = "qrcode_meeting_day.png"
+        img.save(filename)
+
+        return filename, public_url
+    except Exception as e:
+        sg.popup_error(f"Errore durante l'avvio di Ngrok: {e}\nAssicurati che Ngrok sia installato e che il token di autenticazione sia valido.")
+        return None, None
+
+# --- Impostazioni Globali ---
+URL_REPORT_ONLINE = "https://davidezero.github.io/apex-challenge-report/"
+
+# --- Interfaccia Grafica ---
 if __name__ == "__main__":
-    manager = ClassificaManager()
+    classifica_manager = ClassificaManager()
     
-    # Genera il report iniziale all'avvio del programma
-    manager.genera_report_html()
-    
-    azioni_disponibili = list(manager.punti_azioni.keys())
+    azioni_disponibili = list(classifica_manager.punti_azioni.keys())
     dettaglio_attivo_per = None
 
-    # INSERISCI QUI L'URL PUBBLICO DEL TUO REPORT ONLINE
-    # ESEMPIO: "https://miosito.it/classifica_apex_report.html"
-    URL_REPORT_ONLINE = "https://davidezero.github.io/apex-challenge-report/"
-    
-    layout = [
+    server_thread = threading.Thread(target=run_server)
+    server_thread.daemon = True
+    server_thread.start()
+
+    layout_all_content = [
         [sg.Text("CLASSIFICA APEX CHALLENGE", size=(30, 1), justification='center', font=("Helvetica", 16), text_color='orange')],
         [sg.HorizontalSeparator()],
-        [sg.Text("Aggiungi Punti", font=("Helvetica", 12))],\
-        [sg.Text("Nome Collaboratore:", size=(18, 1)), sg.Input(key='-NOME-', size=(25, 1))],\
-        [sg.Text("Azione:", size=(18, 1)), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0] if azioni_disponibili else '', key='-AZIONE-', size=(23, 1))],\
-        [sg.Button("Aggiungi", key='-AGGIUNGI-')],\
-        [sg.HorizontalSeparator()],\
-        [sg.Text("Visualizza e Modifica Classifica", font=("Helvetica", 12))],\
-        [sg.Listbox(values=manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True)],\
-        [sg.Text("Nome Collaboratore:", size=(18, 1)), sg.Input(key='-NOME_SELEZIONATO-', size=(25, 1))],\
-        [sg.Button("Mostra Dettaglio", key='-MOSTRA_DETTAGLIO-'), sg.Button("Mostra Classifica Totale", key='-MOSTRA_TOTALE-')],\
-        [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-'), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-')],\
-        [sg.HorizontalSeparator()],\
-        [sg.Button("Genera Report HTML", key='-REPORT-'), sg.Button("Condividi su WhatsApp", key='-WHATSAPP-'), sg.Button("Apri Report Online", key='-APRI_REPORT-'), sg.Button("Carica su GitHub", key='-CARICA_GITHUB-'), sg.Button("Esci", key='-ESCI-')]\
+        [sg.Text("Aggiungi Punti", font=("Helvetica", 12))],
+        [sg.Text("Nome Collaboratore:", size=(18, 1)), sg.Input(key='-NOME-', size=(25, 1))],
+        [sg.Text("Azione:", size=(18, 1)), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0] if azioni_disponibili else '', key='-AZIONE-', size=(23, 1))],
+        [sg.Button("Aggiungi", key='-AGGIUNGI-')],
+        [sg.HorizontalSeparator()],
+        [sg.Text("Visualizza e Modifica Classifica", font=("Helvetica", 12))],
+        [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True)],
+        [sg.Text("Nome Collaboratore:", size=(18, 1)), sg.Input(key='-NOME_SELEZIONATO-', size=(25, 1))],
+        [sg.Button("Mostra Dettaglio", key='-MOSTRA_DETTAGLIO-'), sg.Button("Modifica Nome", key='-MODIFICA_NOME-')],
+        [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-'), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-')],
+        [sg.Button("Mostra Classifica Totale", key='-MOSTRA_TOTALE-')],
+        [sg.HorizontalSeparator()],
+        [sg.Text("Gestione Check-in Meeting Day", font=("Helvetica", 12))],
+        [sg.Button("Genera QR Code Meeting Day", key='-GENERA_QR-')],
+        [sg.Image(filename='', key='-QR_CODE-', size=(200, 200))],
+        [sg.Text("URL per il check-in:", size=(18,1)), sg.Text("", key='-URL_CHECKIN-', size=(40,1))],
+        [sg.HorizontalSeparator()],
+        [sg.Text("Genera Report e Altro", font=("Helvetica", 12))],
+        [sg.Button("Genera e Carica Report HTML", key='-GENERA_REPORT_E_CARICA-'), sg.Button("Condividi su WhatsApp", key='-WHATSAPP-'), sg.Button("Apri Report Online", key='-APRI_REPORT-'), sg.Button("Visualizza Cronologia", key='-CRONOLOGIA-')],
+        [sg.HorizontalSeparator()],
+        [sg.Button("Esci", key='-ESCI-')]
     ]
+
+    layout = [[sg.Column(layout_all_content, scrollable=True, vertical_scroll_only=True, size=(600, 700))]]
 
     window = sg.Window("Apex Challenge Manager", layout, finalize=True)
     
@@ -456,10 +751,11 @@ if __name__ == "__main__":
         event, values = window.read()
         
         if event == sg.WIN_CLOSED or event == '-ESCI-':
+            ngrok.kill()
             break
 
         if event == '-AGGIUNGI-':
-            nome = values['-NOME-'].strip().title()
+            nome = values['-NOME-'].strip()
             azione_scelta = values['-AZIONE-']
             
             if not nome:
@@ -467,26 +763,44 @@ if __name__ == "__main__":
             elif not azione_scelta:
                 sg.popup_error("Errore: Seleziona un'azione.")
             else:
-                messaggio = manager.aggiungi_punti(nome, azione_scelta)
+                messaggio = classifica_manager.aggiungi_punti(nome, azione_scelta)
                 sg.popup_ok(messaggio)
-                window['-LISTA_CLASSIFICA-'].update(manager.mostra_classifica())
+                window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
                 dettaglio_attivo_per = None
                 window['-NOME_SELEZIONATO-'].update('')
+
+        if event == '-MODIFICA_NOME-':
+            nome_attuale = values['-NOME_SELEZIONATO-'].strip()
+            nuovo_nome = sg.popup_get_text("Inserisci il nuovo nome per il collaboratore:", "Modifica Nome")
+            
+            if not nome_attuale:
+                sg.popup_ok("Errore: Seleziona un collaboratore prima di modificarne il nome.")
+            elif not nuovo_nome:
+                sg.popup_ok("Operazione annullata.")
+            else:
+                nome_attuale_std = classifica_manager.standardizza_nome(nome_attuale)
+                if nome_attuale_std not in classifica_manager.dati_collaboratori:
+                    sg.popup_ok(f"Errore: Il collaboratore '{nome_attuale}' non esiste.")
+                else:
+                    classifica_manager.modifica_nome_collaboratore(nome_attuale, nuovo_nome)
+                    sg.popup_ok(f"Il nome del collaboratore è stato modificato da '{nome_attuale_std}' a '{classifica_manager.standardizza_nome(nuovo_nome)}'.")
+                    window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
+                    window['-NOME_SELEZIONATO-'].update('')
         
         if event == '-MOSTRA_DETTAGLIO-':
-            nome_dettaglio = values['-NOME_SELEZIONATO-'].strip().title()
+            nome_dettaglio = values['-NOME_SELEZIONATO-'].strip()
             if not nome_dettaglio:
                 sg.popup_error("Errore: Inserisci un nome per mostrare il dettaglio.")
             else:
-                dettaglio_list = manager.mostra_dettaglio_classifica(nome_dettaglio)
+                dettaglio_list = classifica_manager.mostra_dettaglio_classifica(nome_dettaglio)
                 if dettaglio_list[0].startswith('Errore'):
                     sg.popup_error(dettaglio_list[0])
                 else:
                     window['-LISTA_CLASSIFICA-'].update(dettaglio_list)
-                    dettaglio_attivo_per = nome_dettaglio
+                    dettaglio_attivo_per = classifica_manager.standardizza_nome(nome_dettaglio)
                     
         if event == '-MOSTRA_TOTALE-':
-            window['-LISTA_CLASSIFICA-'].update(manager.mostra_classifica())
+            window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
             dettaglio_attivo_per = None
             window['-NOME_SELEZIONATO-'].update('')
 
@@ -495,10 +809,10 @@ if __name__ == "__main__":
                 riga_da_eliminare_str = values['-LISTA_CLASSIFICA-'][0]
                 try:
                     indice_da_eliminare = int(riga_da_eliminare_str.split(']')[0].replace('[','').strip()) - 1
-                    messaggio = manager.elimina_riga(dettaglio_attivo_per, indice_da_eliminare)
+                    messaggio = classifica_manager.elimina_riga(dettaglio_attivo_per, indice_da_eliminare)
                     sg.popup_ok(messaggio)
                     
-                    dettaglio_list = manager.mostra_dettaglio_classifica(dettaglio_attivo_per)
+                    dettaglio_list = classifica_manager.mostra_dettaglio_classifica(dettaglio_attivo_per)
                     window['-LISTA_CLASSIFICA-'].update(dettaglio_list)
                     
                 except (ValueError, IndexError):
@@ -507,21 +821,30 @@ if __name__ == "__main__":
                 sg.popup_error("Errore: Prima devi visualizzare il dettaglio di un collaboratore e selezionare una riga.")
 
         if event == '-ELIMINA_COLLABORATORE-':
-            nome_elimina = values['-NOME_SELEZIONATO-'].strip().title()
+            nome_elimina = values['-NOME_SELEZIONATO-'].strip()
             if not nome_elimina:
                  sg.popup_error("Errore: Inserisci il nome del collaboratore da eliminare.")
             else:
-                conferma = sg.popup_yes_no(f"Sei sicuro di voler eliminare il collaboratore '{nome_elimina}' e tutti i suoi dati?", title="Conferma Eliminazione")
+                nome_elimina_std = classifica_manager.standardizza_nome(nome_elimina)
+                conferma = sg.popup_yes_no(f"Sei sicuro di voler eliminare il collaboratore '{nome_elimina_std}' e tutti i suoi dati?", title="Conferma Eliminazione")
                 if conferma == 'Yes':
-                    messaggio = manager.elimina_collaboratore(nome_elimina)
+                    messaggio = classifica_manager.elimina_collaboratore(nome_elimina)
                     sg.popup_ok(messaggio)
-                    window['-LISTA_CLASSIFICA-'].update(manager.mostra_classifica())
+                    window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
                     dettaglio_attivo_per = None
                     window['-NOME_SELEZIONATO-'].update('')
+                    
+        if event == '-GENERA_QR-':
+            qrcode_filename, url = genera_qrcode_meeting_day()
+            if url:
+                window['-QR_CODE-'].update(filename=qrcode_filename, size=(200, 200))
+                window['-URL_CHECKIN-'].update(url)
+                sg.popup_ok(f"QR Code generato. Apri il file '{qrcode_filename}' per visualizzarlo.\nURL per il check-in: {url}\nAssicurati che il tuo PC e i telefoni siano sulla stessa rete WiFi.")
 
-        if event == '-REPORT-':
-            messaggio = manager.genera_report_html()
-            sg.popup_ok(messaggio)
+        if event == '-GENERA_REPORT_E_CARICA-':
+            sg.popup_ok("Generazione report e caricamento su GitHub in corso. Attendi...")
+            classifica_manager.genera_report_html_e_carica()
+            sg.popup_ok("Report generato e caricato su GitHub con successo!")
         
         if event == '-WHATSAPP-':
             if URL_REPORT_ONLINE:
@@ -537,18 +860,10 @@ if __name__ == "__main__":
             else:
                 sg.popup_ok("Devi prima inserire l'URL pubblico del tuo report nel codice, nella variabile 'URL_REPORT_ONLINE'.")
         
-        if event == '-CARICA_GITHUB-':
-            try:
-                # Esegue i comandi Git per aggiornare il repository online
-                sg.popup_ok("Sto caricando su GitHub. Attendi...")
-                subprocess.run(["git", "add", "index.html"], check=True)
-                subprocess.run(["git", "add", "logo_ubroker.png"], check=True)
-                subprocess.run(["git", "commit", "-m", "Aggiornata classifica"], check=True)
-                subprocess.run(["git", "push"], check=True)
-                sg.popup_ok("La classifica è stata caricata su GitHub e verrà aggiornata online a breve.")
-            except subprocess.CalledProcessError as e:
-                sg.popup_error(f"Errore durante l'aggiornamento su GitHub: {e.stderr.decode()}")
-            except FileNotFoundError:
-                sg.popup_error("Errore: Git non è stato trovato. Assicurati che sia installato e configurato.")
-
+        if event == '-CRONOLOGIA-':
+            if os.path.exists("cronologia"):
+                subprocess.Popen(['explorer', os.path.abspath("cronologia")])
+            else:
+                sg.popup_ok("La cartella 'cronologia' non esiste ancora.")
+    
     window.close()

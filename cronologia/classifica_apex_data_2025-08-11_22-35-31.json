@@ -1,0 +1,212 @@
+{
+    "Chiara Tessuti": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 17:57:43"
+        },
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 19:05:04"
+        },
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-11 19:05:09"
+        }
+    ],
+    "Cosimo Arena": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:40:42"
+        }
+    ],
+    "Ombretta Repetto": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:40:54"
+        }
+    ],
+    "Fabio Fioretti": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:41:06"
+        }
+    ],
+    "Matteo Bironi": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:41:18"
+        },
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 18:51:03"
+        }
+    ],
+    "Alba Gomez": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:41:39"
+        },
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-07 00:03:46"
+        },
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-07 00:03:46"
+        },
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 19:01:45"
+        }
+    ],
+    "Maria Colcha": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:42:20"
+        },
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-07 00:10:08"
+        }
+    ],
+    "Ariana Navas": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:42:35"
+        }
+    ],
+    "Gabriela Cruz": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-06 13:42:59"
+        },
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-07 00:54:46"
+        }
+    ],
+    "Marco Morana": [
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-07 00:01:49"
+        },
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-07 00:04:52"
+        },
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 18:01:19"
+        }
+    ],
+    "Alessandro Sidero": [
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-07 00:03:08"
+        },
+        {
+            "azione": "Collaboratore diretto",
+            "punti": 100,
+            "data": "2025-08-07 00:03:12"
+        }
+    ],
+    "Lorenzo Sabatino": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 17:52:10"
+        }
+    ],
+    "Alessia Fietta": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 17:53:19"
+        }
+    ],
+    "Melva Nelly Sanchez Tuarez": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 17:54:06"
+        }
+    ],
+    "Malerbi Marika": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 18:07:05"
+        }
+    ],
+    "Dumitru Ionel Togoe": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 18:11:59"
+        }
+    ],
+    "Luca Uthayakumar": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 18:12:12"
+        }
+    ],
+    "Davi Francesco": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 18:52:27"
+        }
+    ],
+    "Claudio Igor Previtera": [
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-11 18:55:39"
+        },
+        {
+            "azione": "Ospite step one",
+            "punti": 25,
+            "data": "2025-08-11 19:05:35"
+        },
+        {
+            "azione": "Collaboratore diretto",
+            "punti": 100,
+            "data": "2025-08-11 19:05:42"
+        },
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 19:05:47"
+        }
+    ],
+    "Natalia Nigai": [
+        {
+            "azione": "Meeting day",
+            "punti": 50,
+            "data": "2025-08-11 22:35:31"
+        }
+    ]
+}
