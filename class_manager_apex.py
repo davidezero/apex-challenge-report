@@ -15,7 +15,7 @@ from pyngrok import ngrok
 def carica_su_github():
     """
     Carica i file del report HTML su GitHub.
-    Gestisce in modo più robusto gli errori di Git.
+    Gestisce in modo più robusta gli errori di Git.
     """
     try:
         # Aggiunge i file al repository Git
@@ -603,29 +603,98 @@ class ClassificaManager:
                 if azione['azione'] == 'Meeting day' and azione['data'].startswith(oggi_str):
                     return f"Errore: {nome_standardizzato} ha già effettuato il check-in per il Meeting day di oggi."
             
-            # Se non ha fatto il check-in, aggiunge l'azione
-            self.dati_collaboratori[nome_standardizzato].append({
-                "azione": "Meeting day",
-                "punti": 50,
-                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
-            self.salva_dati()
-            self.salva_cronologia()
-            self.genera_report_html_e_carica()
-            return f"Aggiunti 50 punti a {nome_standardizzato} per il Meeting day."
+            # Se non ha fatto il check-in, restituisce il nome per la conferma
+            return nome_standardizzato
         else:
-            # Collaboratore non trovato, solleva una richiesta per crearne uno nuovo
+            # Collaboratore non trovato
             return "NON_TROVATO"
             
 # --- Gestione server web e QR code ---
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/':
+        parsed_path = urlparse(self.path)
+        path = parsed_path.path
+        query_components = parse_qs(parsed_path.query)
+
+        if path == '/':
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
             with open('checkin.html', 'r') as file:
                 self.wfile.write(file.read().encode())
+        elif path == '/conferma_checkin':
+            nome_collaboratore = query_components.get('nome', [''])[0]
+            if nome_collaboratore:
+                risposta_html = f"""
+                <!DOCTYPE html>
+                <html lang="it">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Conferma Check-in</title>
+                    <style>
+                        body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
+                        h1 {{ color: #ff6f00; }}
+                        p {{ font-size: 1.2em; }}
+                        a.button {{
+                            display: inline-block;
+                            padding: 10px 20px;
+                            background-color: #0d47a1;
+                            color: #fff;
+                            text-decoration: none;
+                            border-radius: 5px;
+                            margin: 10px;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Conferma Assegnazione Punti</h1>
+                    <p>Procedere con l'assegnazione di 50 punti "Meeting day" al collaboratore *{nome_collaboratore}*?</p>
+                    <a href="/esegui_checkin?nome={quote(nome_collaboratore)}" class="button">Sì, conferma</a>
+                </body>
+                </html>
+                """
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(risposta_html.encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Errore: Nome non fornito per la conferma.")
+        elif path == '/esegui_checkin':
+            nome_collaboratore = query_components.get('nome', [''])[0]
+            if nome_collaboratore:
+                messaggio = classifica_manager.aggiungi_azione(nome_collaboratore, "Meeting day")
+                risposta_html = f"""
+                <!DOCTYPE html>
+                <html lang="it">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Risultato Check-in</title>
+                    <style>
+                        body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
+                        h1 {{ color: #0d47a1; }}
+                        p {{ font-size: 1.2em; }}
+                        a {{ color: #0d47a1; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Risultato Check-in</h1>
+                    <p>{messaggio}</p>
+                    <a href="/">Torna al modulo di check-in</a>
+                </body>
+                </html>
+                """
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(risposta_html.encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Errore: Nome non fornito per l'esecuzione del check-in.")
         else:
             self.send_response(404)
             self.end_headers()
@@ -640,31 +709,37 @@ class MyHandler(BaseHTTPRequestHandler):
             nome_collaboratore = dati_form.get('nome', [''])[0]
 
             if nome_collaboratore:
-                messaggio = classifica_manager.aggiungi_punti_da_checkin(nome_collaboratore)
+                messaggio_o_nome = classifica_manager.aggiungi_punti_da_checkin(nome_collaboratore)
                 
-                risposta_html = f"""
-                <!DOCTYPE html>
-                <html lang="it">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Check-in Apex Challenge</title>
-                    <style>
-                        body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
-                        h1 {{ color: #0d47a1; }}
-                        p {{ font-size: 1.2em; }}
-                    </style>
-                </head>
-                <body>
-                    <h1>Risultato del Check-in</h1>
-                    <p>{messaggio}</p>
-                    <a href="/">Torna al modulo di check-in</a>
-                </body>
-                </html>
-                """
+                # Caso 1: il collaboratore ha già fatto il check-in oggi
+                if messaggio_o_nome.startswith("Errore"):
+                    risposta_html = f"""
+                    <!DOCTYPE html>
+                    <html lang="it">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>Check-in Apex Challenge</title>
+                        <style>
+                            body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
+                            h1 {{ color: #ff6f00; }}
+                            p {{ font-size: 1.2em; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h1>Attenzione!</h1>
+                        <p>{messaggio_o_nome}</p>
+                        <a href="/">Torna al modulo di check-in</a>
+                    </body>
+                    </html>
+                    """
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(risposta_html.encode('utf-8'))
                 
-                # Se il nome non viene trovato tramite QR code, chiedi la conferma
-                if messaggio == "NON_TROVATO":
+                # Caso 2: il collaboratore non viene trovato (chiedi di creare)
+                elif messaggio_o_nome == "NON_TROVATO":
                     nome_std = classifica_manager.standardizza_nome(nome_collaboratore)
                     risposta_html = f"""
                     <!DOCTYPE html>
@@ -691,9 +766,9 @@ class MyHandler(BaseHTTPRequestHandler):
                     </head>
                     <body>
                         <h1>Attenzione!</h1>
-                        <p>Il collaboratore '{nome_std}' non è stato trovato.</p>
+                        <p>Il collaboratore *{nome_std}* non è stato trovato.</p>
                         <p>Vuoi creare un nuovo collaboratore con questo nome e assegnare i punti?</p>
-                        <a href="/conferma_checkin?nome={quote(nome_std)}" class="button">Sì, crea e assegna</a>
+                        <a href="/esegui_checkin?nome={quote(nome_std)}" class="button">Sì, crea e assegna</a>
                         <a href="/" class="button cancel">No, annulla</a>
                     </body>
                     </html>
@@ -702,49 +777,16 @@ class MyHandler(BaseHTTPRequestHandler):
                     self.send_header('Content-type', 'text/html; charset=utf-8')
                     self.end_headers()
                     self.wfile.write(risposta_html.encode('utf-8'))
+                
+                # Caso 3: il collaboratore viene trovato (chiedi di confermare)
                 else:
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                    self.send_response(303)  # Codice di stato per "See Other"
+                    self.send_header('Location', f'/conferma_checkin?nome={quote(messaggio_o_nome)}')
                     self.end_headers()
-                    self.wfile.write(risposta_html.encode('utf-8'))
-        elif self.path.startswith('/conferma_checkin'):
-            query_components = parse_qs(urlparse(self.path).query)
-            nome_collaboratore = query_components.get('nome', [''])[0]
-            
-            if nome_collaboratore:
-                messaggio = classifica_manager.aggiungi_azione(nome_collaboratore, "Meeting day")
-                risposta_html = f"""
-                <!DOCTYPE html>
-                <html lang="it">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Check-in Apex Challenge</title>
-                    <style>
-                        body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
-                        h1 {{ color: #0d47a1; }}
-                        p {{ font-size: 1.2em; }}
-                    </style>
-                </head>
-                <body>
-                    <h1>Risultato del Check-in</h1>
-                    <p>{messaggio}</p>
-                    <a href="/">Torna al modulo di check-in</a>
-                </body>
-                </html>
-                """
-                self.send_response(200)
-                self.send_header('Content-type', 'text/html; charset=utf-8')
-                self.end_headers()
-                self.wfile.write(risposta_html.encode('utf-8'))
             else:
                 self.send_response(400)
                 self.end_headers()
-                self.wfile.write(b"Errore: Nome non fornito per la conferma.")
-        else:
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"404 Not Found")
+                self.wfile.write(b"Errore: Nome non fornito nel modulo.")
 
 
 def run_server():
@@ -788,35 +830,42 @@ if __name__ == "__main__":
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
-
-    layout_all_content = [
-        [sg.Text("CLASSIFICA APEX CHALLENGE", size=(30, 1), justification='center', font=("Helvetica", 16), text_color='orange')],
-        [sg.HorizontalSeparator()],
-        [sg.Text("Aggiungi Punti", font=("Helvetica", 12))],
-        [sg.Text("Nome Collaboratore:", size=(18, 1)), sg.Input(key='-NOME-', size=(25, 1))],
-        [sg.Text("Azione:", size=(18, 1)), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0] if azioni_disponibili else '', key='-AZIONE-', size=(23, 1))],
-        [sg.Button("Aggiungi", key='-AGGIUNGI-')],
-        [sg.HorizontalSeparator()],
-        [sg.Text("Visualizza e Modifica Classifica", font=("Helvetica", 12))],
-        [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True)],
-        [sg.Text("Nome Collaboratore:", size=(18, 1)), sg.Input(key='-NOME_SELEZIONATO-', size=(25, 1))],
-        [sg.Button("Mostra Dettaglio", key='-MOSTRA_DETTAGLIO-'), sg.Button("Modifica Nome", key='-MODIFICA_NOME-')],
-        [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-'), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-')],
-        [sg.Button("Mostra Classifica Totale", key='-MOSTRA_TOTALE-')],
-        [sg.HorizontalSeparator()],
-        [sg.Text("Gestione Check-in Meeting Day", font=("Helvetica", 12))],
-        [sg.Button("Genera QR Code Meeting Day", key='-GENERA_QR-')],
-        [sg.Image(filename='', key='-QR_CODE-', size=(200, 200))],
-        [sg.Text("URL per il check-in:", size=(18,1)), sg.Text("", key='-URL_CHECKIN-', size=(40,1))],
-        [sg.HorizontalSeparator()],
-        [sg.Text("Genera Report e Altro", font=("Helvetica", 12))],
-        [sg.Button("Genera e Carica Report HTML", key='-GENERA_REPORT_E_CARICA-'), sg.Button("Condividi su WhatsApp", key='-WHATSAPP-'), sg.Button("Visualizza Cronologia", key='-CRONOLOGIA-')],
-        [sg.HorizontalSeparator()],
-        [sg.Button("Esci", key='-ESCI-')]
+    
+    # Nuovi layout organizzati in colonne
+    column_left = [
+        [sg.Frame("Aggiungi Punti", [
+            [sg.Text("Nome Collaboratore:", size=(15, 1)), sg.Input(key='-NOME-', size=(25, 1))],
+            [sg.Text("Azione:", size=(15, 1)), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0] if azioni_disponibili else '', key='-AZIONE-', size=(23, 1))],
+            [sg.Button("Aggiungi", key='-AGGIUNGI-')]
+        ])],
+        [sg.Frame("Visualizza e Modifica Classifica", [
+            [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True)],
+            [sg.Text("Nome Selezionato:", size=(18, 1)), sg.Input(key='-NOME_SELEZIONATO-', size=(25, 1), disabled=True)],
+            [sg.Button("Mostra Dettaglio", key='-MOSTRA_DETTAGLIO-'), sg.Button("Modifica Nome", key='-MODIFICA_NOME-')],
+            [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-'), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-')],
+            [sg.Button("Mostra Classifica Totale", key='-MOSTRA_TOTALE-')],
+        ])]
+    ]
+    
+    column_right = [
+        [sg.Frame("Gestione Check-in Meeting Day", [
+            [sg.Button("Genera QR Code", key='-GENERA_QR-')],
+            [sg.Image(filename='', key='-QR_CODE-', size=(200, 200))],
+            [sg.Text("URL per il check-in:", size=(18,1)), sg.Text("", key='-URL_CHECKIN-', size=(40,1), font=("Helvetica", 10))],
+        ])],
+        [sg.Frame("Genera Report e Altro", [
+            [sg.Button("Genera e Carica Report HTML", key='-GENERA_REPORT_E_CARICA-')],
+            [sg.Button("Condividi su WhatsApp", key='-WHATSAPP-')],
+            [sg.Button("Visualizza Cronologia", key='-CRONOLOGIA-')],
+        ])]
     ]
 
-    layout = [[sg.Column(layout_all_content, scrollable=True, vertical_scroll_only=True, size=(600, 700))]]
-
+    layout = [
+        [sg.Text("CLASSIFICA APEX CHALLENGE", size=(60, 1), justification='center', font=("Helvetica", 16), text_color='orange')],
+        [sg.Column(column_left), sg.Column(column_right, vertical_alignment='top')],
+        [sg.Button("Esci", key='-ESCI-')]
+    ]
+    
     window = sg.Window("Apex Challenge Manager", layout, finalize=True)
     
     while True:
@@ -825,7 +874,30 @@ if __name__ == "__main__":
         if event == sg.WIN_CLOSED or event == '-ESCI-':
             ngrok.kill()
             break
-
+        
+        if event == '-LISTA_CLASSIFICA-':
+            if values['-LISTA_CLASSIFICA-']:
+                riga_selezionata = values['-LISTA_CLASSIFICA-'][0]
+                
+                try:
+                    # Estrae il nome dalla riga della classifica
+                    # Ignora le righe che non contengono un punto e un nome valido
+                    if '.' in riga_selezionata and ':' in riga_selezionata:
+                        nome = riga_selezionata.split(':', 1)[0].split('.', 1)[1].strip()
+                        window['-NOME_SELEZIONATO-'].update(nome)
+                        dettaglio_attivo_per = None # Reset dettaglio attivo
+                    elif ']' in riga_selezionata:
+                        # Se è un dettaglio, estrae il nome dal titolo del dettaglio
+                        nome_dettaglio_corrente = riga_selezionata.split(']')[0].split('[')[1].strip()
+                        if nome_dettaglio_corrente in classifica_manager.dati_collaboratori:
+                            window['-NOME_SELEZIONATO-'].update(nome_dettaglio_corrente)
+                        else:
+                            window['-NOME_SELEZIONATO-'].update('')
+                    else:
+                        window['-NOME_SELEZIONATO-'].update('')
+                except (IndexError, ValueError):
+                    window['-NOME_SELEZIONATO-'].update('')
+                
         if event == '-AGGIUNGI-':
             nome_input = values['-NOME-'].strip()
             azione_scelta = values['-AZIONE-']
@@ -838,7 +910,6 @@ if __name__ == "__main__":
                 nome_esistente = classifica_manager.cerca_collaboratore_flessibile(nome_input)
                 
                 if nome_esistente:
-                    # Collaboratore trovato, chiedi conferma
                     conferma = sg.popup_yes_no(f"Hai inserito '{nome_input}'. Il sistema ha trovato un collaboratore esistente: '{nome_esistente}'. Vuoi assegnare i punti a '{nome_esistente}'?", title="Conferma Assegnazione")
                     if conferma == 'Yes':
                         messaggio = classifica_manager.aggiungi_azione(nome_esistente, azione_scelta)
@@ -846,7 +917,6 @@ if __name__ == "__main__":
                         window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
                         window['-NOME_SELEZIONATO-'].update('')
                 else:
-                    # Collaboratore non trovato, chiedi se vuoi crearne uno nuovo
                     nome_standardizzato = classifica_manager.standardizza_nome(nome_input)
                     conferma = sg.popup_yes_no(f"Il collaboratore '{nome_input}' non è stato trovato. Vuoi creare un nuovo collaboratore con questo nome e assegnargli i punti?", title="Crea Nuovo Collaboratore")
                     if conferma == 'Yes':
@@ -854,6 +924,7 @@ if __name__ == "__main__":
                         sg.popup_ok(messaggio)
                         window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
                         window['-NOME_SELEZIONATO-'].update('')
+        
         if event == '-MODIFICA_NOME-':
             nome_attuale = values['-NOME_SELEZIONATO-'].strip()
             nuovo_nome = sg.popup_get_text("Inserisci il nuovo nome per il collaboratore:", "Modifica Nome")
@@ -875,7 +946,7 @@ if __name__ == "__main__":
         if event == '-MOSTRA_DETTAGLIO-':
             nome_dettaglio = values['-NOME_SELEZIONATO-'].strip()
             if not nome_dettaglio:
-                sg.popup_error("Errore: Inserisci un nome per mostrare il dettaglio.")
+                sg.popup_error("Errore: Seleziona un collaboratore per mostrare il dettaglio.")
             else:
                 dettaglio_list = classifica_manager.mostra_dettaglio_classifica(nome_dettaglio)
                 if dettaglio_list[0].startswith('Errore'):
@@ -908,7 +979,7 @@ if __name__ == "__main__":
         if event == '-ELIMINA_COLLABORATORE-':
             nome_elimina = values['-NOME_SELEZIONATO-'].strip()
             if not nome_elimina:
-                 sg.popup_error("Errore: Inserisci il nome del collaboratore da eliminare.")
+                 sg.popup_error("Errore: Seleziona il nome del collaboratore da eliminare.")
             else:
                 nome_elimina_std = classifica_manager.standardizza_nome(nome_elimina)
                 conferma = sg.popup_yes_no(f"Sei sicuro di voler eliminare il collaboratore '{nome_elimina_std}' e tutti i suoi dati?", title="Conferma Eliminazione")
