@@ -84,13 +84,22 @@ class ClassificaManager:
 
     def cerca_collaboratore_flessibile(self, nome_input):
         """
-        Cerca un collaboratore esistente in modo flessibile (ricerca per sottostringa).
+        Cerca un collaboratore esistente in modo flessibile.
         Restituisce il nome standardizzato del collaboratore trovato o None se non c'è corrispondenza.
         """
-        nome_input_minuscolo = nome_input.lower()
+        nome_input_std = self.standardizza_nome(nome_input)
+        
+        # 1. Cerca corrispondenza esatta con il nome standardizzato
+        if nome_input_std in self.dati_collaboratori:
+            return nome_input_std
+        
+        # 2. Cerca corrispondenza flessibile (parole in qualsiasi ordine)
+        input_parole = sorted(nome_input_std.lower().split())
         for nome_esistente in self.dati_collaboratori.keys():
-            if nome_input_minuscolo in nome_esistente.lower():
+            nome_esistente_parole = sorted(nome_esistente.lower().split())
+            if input_parole == nome_esistente_parole:
                 return nome_esistente
+        
         return None
 
     def modifica_nome_collaboratore(self, nome_attuale, nuovo_nome):
@@ -108,12 +117,11 @@ class ClassificaManager:
             return True
         return False
         
-    def trova_ultimo_backup(self):
+    def trova_ultimo_backup(self, history_folder="cronologia"):
         """
         Trova il file di backup più recente nella cartella cronologia.
         Restituisce il percorso completo del file o None se non ne trova.
         """
-        history_folder = "cronologia"
         if not os.path.exists(history_folder):
             return None
         
@@ -163,40 +171,29 @@ class ClassificaManager:
         with open(self.filename, 'w') as f:
             json.dump(self.dati_collaboratori, f, indent=4)
 
-    def aggiungi_punti(self, nome_collaboratore_input, azione):
+    def aggiungi_azione(self, nome_collaboratore_standardizzato, azione):
         """
-        Aggiunge un'azione completata a un collaboratore.
-        Il collaboratore viene cercato in modo flessibile.
+        Aggiunge l'azione specificata al collaboratore con il nome standardizzato.
         """
         punti_da_aggiungere = self.punti_azioni.get(azione, 0)
         
         if punti_da_aggiungere == 0:
             return f"Errore: Azione '{azione}' non riconosciuta."
+        
+        # Se il collaboratore non esiste, viene creato
+        if nome_collaboratore_standardizzato not in self.dati_collaboratori:
+            self.dati_collaboratori[nome_collaboratore_standardizzato] = []
 
-        nome_standardizzato = self.cerca_collaboratore_flessibile(nome_collaboratore_input)
-
-        if nome_standardizzato:
-            self.dati_collaboratori[nome_standardizzato].append({
-                "azione": azione,
-                "punti": punti_da_aggiungere,
-                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
-            self.salva_dati()
-            self.salva_cronologia()
-            self.genera_report_html_e_carica()
-            return f"Aggiunta l'azione '{azione}' a {nome_standardizzato} (+{punti_da_aggiungere} punti)."
-        else:
-            nome_nuovo = self.standardizza_nome(nome_collaboratore_input)
-            self.dati_collaboratori[nome_nuovo] = [{
-                "azione": azione,
-                "punti": punti_da_aggiungere,
-                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }]
-            self.salva_dati()
-            self.salva_cronologia()
-            self.genera_report_html_e_carica()
-            return f"Nuovo collaboratore '{nome_nuovo}' aggiunto con l'azione '{azione}' (+{punti_da_aggiungere} punti)."
-
+        self.dati_collaboratori[nome_collaboratore_standardizzato].append({
+            "azione": azione,
+            "punti": punti_da_aggiungere,
+            "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        self.salva_dati()
+        self.salva_cronologia()
+        self.genera_report_html_e_carica()
+        return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} (+{punti_da_aggiungere} punti)."
+        
     def elimina_riga(self, nome_collaboratore, indice_riga):
         """
         Elimina una riga specifica dall'elenco delle azioni di un collaboratore.
@@ -597,26 +594,29 @@ class ClassificaManager:
         """
         oggi_str = datetime.now().strftime("%Y-%m-%d")
         
-        nome_standardizzato = self.standardizza_nome(nome_completo)
+        # Cerca il collaboratore in modo flessibile
+        nome_standardizzato = self.cerca_collaboratore_flessibile(nome_completo)
 
-        if nome_standardizzato not in self.dati_collaboratori:
-            self.dati_collaboratori[nome_standardizzato] = []
-        
-        for azione in self.dati_collaboratori[nome_standardizzato]:
-            if azione['azione'] == 'Meeting day' and azione['data'].startswith(oggi_str):
-                return f"Errore: {nome_standardizzato} ha già effettuato il check-in per il Meeting day di oggi."
-        
-        self.dati_collaboratori[nome_standardizzato].append({
-            "azione": "Meeting day",
-            "punti": 50,
-            "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-        
-        self.salva_dati()
-        self.salva_cronologia()
-        self.genera_report_html_e_carica()
-        return f"Aggiunti 50 punti a {nome_standardizzato} per il Meeting day."
-
+        if nome_standardizzato:
+            # Collaboratore trovato, verifica se ha già fatto il check-in oggi
+            for azione in self.dati_collaboratori.get(nome_standardizzato, []):
+                if azione['azione'] == 'Meeting day' and azione['data'].startswith(oggi_str):
+                    return f"Errore: {nome_standardizzato} ha già effettuato il check-in per il Meeting day di oggi."
+            
+            # Se non ha fatto il check-in, aggiunge l'azione
+            self.dati_collaboratori[nome_standardizzato].append({
+                "azione": "Meeting day",
+                "punti": 50,
+                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+            self.salva_dati()
+            self.salva_cronologia()
+            self.genera_report_html_e_carica()
+            return f"Aggiunti 50 punti a {nome_standardizzato} per il Meeting day."
+        else:
+            # Collaboratore non trovato, solleva una richiesta per crearne uno nuovo
+            return "NON_TROVATO"
+            
 # --- Gestione server web e QR code ---
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -641,9 +641,6 @@ class MyHandler(BaseHTTPRequestHandler):
 
             if nome_collaboratore:
                 messaggio = classifica_manager.aggiungi_punti_da_checkin(nome_collaboratore)
-                self.send_response(200)
-                self.send_header('Content-type', 'text/html; charset=utf-8')
-                self.end_headers()
                 
                 risposta_html = f"""
                 <!DOCTYPE html>
@@ -665,15 +662,90 @@ class MyHandler(BaseHTTPRequestHandler):
                 </body>
                 </html>
                 """
+                
+                # Se il nome non viene trovato tramite QR code, chiedi la conferma
+                if messaggio == "NON_TROVATO":
+                    nome_std = classifica_manager.standardizza_nome(nome_collaboratore)
+                    risposta_html = f"""
+                    <!DOCTYPE html>
+                    <html lang="it">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>Check-in Apex Challenge</title>
+                        <style>
+                            body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
+                            h1 {{ color: #ff6f00; }}
+                            p {{ font-size: 1.2em; }}
+                            a.button {{
+                                display: inline-block;
+                                padding: 10px 20px;
+                                background-color: #0d47a1;
+                                color: #fff;
+                                text-decoration: none;
+                                border-radius: 5px;
+                                margin: 10px;
+                            }}
+                            a.button.cancel {{ background-color: #ccc; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h1>Attenzione!</h1>
+                        <p>Il collaboratore '{nome_std}' non è stato trovato.</p>
+                        <p>Vuoi creare un nuovo collaboratore con questo nome e assegnare i punti?</p>
+                        <a href="/conferma_checkin?nome={quote(nome_std)}" class="button">Sì, crea e assegna</a>
+                        <a href="/" class="button cancel">No, annulla</a>
+                    </body>
+                    </html>
+                    """
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(risposta_html.encode('utf-8'))
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                    self.end_headers()
+                    self.wfile.write(risposta_html.encode('utf-8'))
+        elif self.path.startswith('/conferma_checkin'):
+            query_components = parse_qs(urlparse(self.path).query)
+            nome_collaboratore = query_components.get('nome', [''])[0]
+            
+            if nome_collaboratore:
+                messaggio = classifica_manager.aggiungi_azione(nome_collaboratore, "Meeting day")
+                risposta_html = f"""
+                <!DOCTYPE html>
+                <html lang="it">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Check-in Apex Challenge</title>
+                    <style>
+                        body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
+                        h1 {{ color: #0d47a1; }}
+                        p {{ font-size: 1.2em; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Risultato del Check-in</h1>
+                    <p>{messaggio}</p>
+                    <a href="/">Torna al modulo di check-in</a>
+                </body>
+                </html>
+                """
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.end_headers()
                 self.wfile.write(risposta_html.encode('utf-8'))
             else:
                 self.send_response(400)
                 self.end_headers()
-                self.wfile.write(b"Errore: Nome non fornito.")
+                self.wfile.write(b"Errore: Nome non fornito per la conferma.")
         else:
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b"404 Not Found")
+
 
 def run_server():
     server_address = ('', 8000)
@@ -755,20 +827,33 @@ if __name__ == "__main__":
             break
 
         if event == '-AGGIUNGI-':
-            nome = values['-NOME-'].strip()
+            nome_input = values['-NOME-'].strip()
             azione_scelta = values['-AZIONE-']
             
-            if not nome:
+            if not nome_input:
                 sg.popup_error("Errore: Inserisci un nome per il collaboratore.")
             elif not azione_scelta:
                 sg.popup_error("Errore: Seleziona un'azione.")
             else:
-                messaggio = classifica_manager.aggiungi_punti(nome, azione_scelta)
-                sg.popup_ok(messaggio)
-                window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                dettaglio_attivo_per = None
-                window['-NOME_SELEZIONATO-'].update('')
-
+                nome_esistente = classifica_manager.cerca_collaboratore_flessibile(nome_input)
+                
+                if nome_esistente:
+                    # Collaboratore trovato, chiedi conferma
+                    conferma = sg.popup_yes_no(f"Hai inserito '{nome_input}'. Il sistema ha trovato un collaboratore esistente: '{nome_esistente}'. Vuoi assegnare i punti a '{nome_esistente}'?", title="Conferma Assegnazione")
+                    if conferma == 'Yes':
+                        messaggio = classifica_manager.aggiungi_azione(nome_esistente, azione_scelta)
+                        sg.popup_ok(messaggio)
+                        window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
+                        window['-NOME_SELEZIONATO-'].update('')
+                else:
+                    # Collaboratore non trovato, chiedi se vuoi crearne uno nuovo
+                    nome_standardizzato = classifica_manager.standardizza_nome(nome_input)
+                    conferma = sg.popup_yes_no(f"Il collaboratore '{nome_input}' non è stato trovato. Vuoi creare un nuovo collaboratore con questo nome e assegnargli i punti?", title="Crea Nuovo Collaboratore")
+                    if conferma == 'Yes':
+                        messaggio = classifica_manager.aggiungi_azione(nome_standardizzato, azione_scelta)
+                        sg.popup_ok(messaggio)
+                        window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
+                        window['-NOME_SELEZIONATO-'].update('')
         if event == '-MODIFICA_NOME-':
             nome_attuale = values['-NOME_SELEZIONATO-'].strip()
             nuovo_nome = sg.popup_get_text("Inserisci il nuovo nome per il collaboratore:", "Modifica Nome")
