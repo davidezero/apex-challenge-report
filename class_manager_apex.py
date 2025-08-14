@@ -171,9 +171,10 @@ class ClassificaManager:
         with open(self.filename, 'w') as f:
             json.dump(self.dati_collaboratori, f, indent=4)
 
-    def aggiungi_azione(self, nome_collaboratore_standardizzato, azione):
+    def aggiungi_azione(self, nome_collaboratore_standardizzato, azione, quantita=1):
         """
         Aggiunge l'azione specificata al collaboratore con il nome standardizzato.
+        Gestisce l'aggiunta di più punti in una volta sola per azioni specifiche.
         """
         punti_da_aggiungere = self.punti_azioni.get(azione, 0)
         
@@ -184,15 +185,21 @@ class ClassificaManager:
         if nome_collaboratore_standardizzato not in self.dati_collaboratori:
             self.dati_collaboratori[nome_collaboratore_standardizzato] = []
 
-        self.dati_collaboratori[nome_collaboratore_standardizzato].append({
-            "azione": azione,
-            "punti": punti_da_aggiungere,
-            "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
+        # Aggiunge l'azione il numero di volte specificato
+        for _ in range(quantita):
+            self.dati_collaboratori[nome_collaboratore_standardizzato].append({
+                "azione": azione,
+                "punti": punti_da_aggiungere,
+                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+
         self.salva_dati()
         self.salva_cronologia()
         self.genera_report_html_e_carica()
-        return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} (+{punti_da_aggiungere} punti)."
+        if quantita > 1:
+            return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} per {quantita} volte. (+{punti_da_aggiungere * quantita} punti totali)."
+        else:
+            return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} (+{punti_da_aggiungere} punti)."
         
     def elimina_riga(self, nome_collaboratore, indice_riga):
         """
@@ -244,7 +251,7 @@ class ClassificaManager:
         punteggi_totali = {nome: self.calcola_punteggio_totale(nome) for nome in self.dati_collaboratori}
         classifica_ordinata = sorted(punteggi_totali.items(), key=lambda item: item[1], reverse=True)
 
-        classifica_list = ["--- CLASSIFICA APEX CHALLENGE ---"]
+        classifica_list = [f"--- CLASSIFICA APEX CHALLENGE ---"]
         posizione = 1
         for nome, punteggio in classifica_ordinata:
             classifica_list.append(f"{posizione}. {nome}: {punteggio} punti")
@@ -822,6 +829,9 @@ URL_REPORT_ONLINE = "https://davidezero.github.io/apex-challenge-report/"
 
 # --- Interfaccia Grafica ---
 if __name__ == "__main__":
+    # Imposta il font globale a grassetto
+    sg.set_options(font=('Helvetica', 12, 'bold'))
+
     classifica_manager = ClassificaManager()
     
     azioni_disponibili = list(classifica_manager.punti_azioni.keys())
@@ -835,14 +845,15 @@ if __name__ == "__main__":
     column_left = [
         [sg.Frame("Aggiungi Punti", [
             [sg.Text("Nome Collaboratore:", size=(15, 1)), sg.Input(key='-NOME-', size=(25, 1))],
-            [sg.Text("Azione:", size=(15, 1)), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0] if azioni_disponibili else '', key='-AZIONE-', size=(23, 1))],
+            [sg.Text("Azione:", size=(15, 1)), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0] if azioni_disponibili else '', key='-AZIONE-', size=(23, 1), enable_events=True)],
+            [sg.Text("Quantità:", size=(15, 1)), sg.Input(default_text='1', key='-QUANTITA-', size=(5, 1), disabled=True)],
             [sg.Button("Aggiungi", key='-AGGIUNGI-')]
         ])],
         [sg.Frame("Visualizza e Modifica Classifica", [
-            [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True)],
+            [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True, right_click_menu=['', ['Assegna punti azione', 'Modifica Nome']])],
             [sg.Text("Nome Selezionato:", size=(18, 1)), sg.Input(key='-NOME_SELEZIONATO-', size=(25, 1), disabled=True)],
             [sg.Button("Mostra Dettaglio", key='-MOSTRA_DETTAGLIO-'), sg.Button("Modifica Nome", key='-MODIFICA_NOME-')],
-            [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-'), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-')],
+            [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-', button_color=('white', 'red')), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-', button_color=('white', 'red'))],
             [sg.Button("Mostra Classifica Totale", key='-MOSTRA_TOTALE-')],
         ])]
     ]
@@ -857,13 +868,13 @@ if __name__ == "__main__":
             [sg.Button("Genera e Carica Report HTML", key='-GENERA_REPORT_E_CARICA-')],
             [sg.Button("Condividi su WhatsApp", key='-WHATSAPP-')],
             [sg.Button("Visualizza Cronologia", key='-CRONOLOGIA-')],
+            [sg.Button("Esci", key='-ESCI-', pad=(5, (10, 0)))]
         ])]
     ]
 
     layout = [
-        [sg.Text("CLASSIFICA APEX CHALLENGE", size=(60, 1), justification='center', font=("Helvetica", 16), text_color='orange')],
+        [sg.Text("CLASSIFICA APEX CHALLENGE", size=(60, 1), justification='center', font=("Helvetica", 16, 'bold'), text_color='orange')],
         [sg.Column(column_left), sg.Column(column_right, vertical_alignment='top')],
-        [sg.Button("Esci", key='-ESCI-')]
     ]
     
     window = sg.Window("Apex Challenge Manager", layout, finalize=True)
@@ -874,14 +885,77 @@ if __name__ == "__main__":
         if event == sg.WIN_CLOSED or event == '-ESCI-':
             ngrok.kill()
             break
+
+        # Abilita/Disabilita il campo quantità in base all'azione selezionata
+        if event == '-AZIONE-':
+            if values['-AZIONE-'] in ['Collaboratore diretto', 'Ospite step one']:
+                window['-QUANTITA-'].update(disabled=False)
+            else:
+                window['-QUANTITA-'].update(disabled=True)
+                window['-QUANTITA-'].update('1')
         
+        # Gestione del menu contestuale
+        if event == 'Assegna punti azione':
+            # Estrae il nome dalla riga selezionata, gestendo il caso in cui il dettaglio sia attivo
+            riga_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
+            if ']' in riga_selezionata_str:
+                # E' un riga di dettaglio, prendo il nome da dettaglio_attivo_per
+                nome_selezionato = dettaglio_attivo_per
+            else:
+                # E' una riga della classifica, estraggo il nome
+                nome_selezionato = riga_selezionata_str.split(':', 1)[0].split('.', 1)[1].strip()
+
+            # Mostra un popup per l'assegnazione punti
+            popup_layout = [
+                [sg.Text(f"Assegna punti a {nome_selezionato}")],
+                [sg.Text("Azione:"), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0], key='-POPUP_AZIONE-')],
+                [sg.Text("Quantità:"), sg.Input(default_text='1', key='-POPUP_QUANTITA-')],
+                [sg.Button("Conferma", key='-POPUP_CONFERMA-'), sg.Button("Annulla", key='-POPUP_ANNULLA-')]
+            ]
+            popup_window = sg.Window("Assegna Punti", popup_layout, modal=True, finalize=True)
+            
+            while True:
+                popup_event, popup_values = popup_window.read()
+                if popup_event == sg.WIN_CLOSED or popup_event == '-POPUP_ANNULLA-':
+                    break
+                if popup_event == '-POPUP_CONFERMA-':
+                    try:
+                        quantita = int(popup_values['-POPUP_QUANTITA-'])
+                        if quantita < 1:
+                            sg.popup_error("La quantità deve essere un numero intero maggiore di zero.")
+                            continue
+                        azione = popup_values['-POPUP_AZIONE-']
+                        messaggio = classifica_manager.aggiungi_azione(nome_selezionato, azione, quantita)
+                        sg.popup_ok(messaggio)
+                        window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
+                        break
+                    except ValueError:
+                        sg.popup_error("Inserisci un numero valido per la quantità.")
+            popup_window.close()
+        
+        if event == 'Modifica Nome':
+            # Estrae il nome dalla riga selezionata, gestendo il caso in cui il dettaglio sia attivo
+            riga_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
+            if ']' in riga_selezionata_str:
+                nome_attuale = dettaglio_attivo_per
+            else:
+                nome_attuale = riga_selezionata_str.split(':', 1)[0].split('.', 1)[1].strip()
+
+            nuovo_nome = sg.popup_get_text("Inserisci il nuovo nome per il collaboratore:", "Modifica Nome", default_text=nome_attuale)
+            if not nuovo_nome:
+                sg.popup_ok("Operazione annullata.")
+            else:
+                classifica_manager.modifica_nome_collaboratore(nome_attuale, nuovo_nome)
+                sg.popup_ok(f"Il nome del collaboratore è stato modificato da '{nome_attuale}' a '{classifica_manager.standardizza_nome(nuovo_nome)}'.")
+                window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
+                window['-NOME_SELEZIONATO-'].update('')
+                
         if event == '-LISTA_CLASSIFICA-':
             if values['-LISTA_CLASSIFICA-']:
                 riga_selezionata = values['-LISTA_CLASSIFICA-'][0]
                 
                 try:
                     # Estrae il nome dalla riga della classifica
-                    # Ignora le righe che non contengono un punto e un nome valido
                     if '.' in riga_selezionata and ':' in riga_selezionata:
                         nome = riga_selezionata.split(':', 1)[0].split('.', 1)[1].strip()
                         window['-NOME_SELEZIONATO-'].update(nome)
@@ -901,18 +975,28 @@ if __name__ == "__main__":
         if event == '-AGGIUNGI-':
             nome_input = values['-NOME-'].strip()
             azione_scelta = values['-AZIONE-']
+            quantita_input = values['-QUANTITA-']
             
             if not nome_input:
                 sg.popup_error("Errore: Inserisci un nome per il collaboratore.")
             elif not azione_scelta:
                 sg.popup_error("Errore: Seleziona un'azione.")
             else:
+                try:
+                    quantita = int(quantita_input)
+                    if quantita < 1:
+                        sg.popup_error("La quantità deve essere un numero intero maggiore di zero.")
+                        continue
+                except ValueError:
+                    sg.popup_error("Inserisci un numero valido per la quantità.")
+                    continue
+
                 nome_esistente = classifica_manager.cerca_collaboratore_flessibile(nome_input)
                 
                 if nome_esistente:
                     conferma = sg.popup_yes_no(f"Hai inserito '{nome_input}'. Il sistema ha trovato un collaboratore esistente: '{nome_esistente}'. Vuoi assegnare i punti a '{nome_esistente}'?", title="Conferma Assegnazione")
                     if conferma == 'Yes':
-                        messaggio = classifica_manager.aggiungi_azione(nome_esistente, azione_scelta)
+                        messaggio = classifica_manager.aggiungi_azione(nome_esistente, azione_scelta, quantita)
                         sg.popup_ok(messaggio)
                         window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
                         window['-NOME_SELEZIONATO-'].update('')
@@ -920,7 +1004,7 @@ if __name__ == "__main__":
                     nome_standardizzato = classifica_manager.standardizza_nome(nome_input)
                     conferma = sg.popup_yes_no(f"Il collaboratore '{nome_input}' non è stato trovato. Vuoi creare un nuovo collaboratore con questo nome e assegnargli i punti?", title="Crea Nuovo Collaboratore")
                     if conferma == 'Yes':
-                        messaggio = classifica_manager.aggiungi_azione(nome_standardizzato, azione_scelta)
+                        messaggio = classifica_manager.aggiungi_azione(nome_standardizzato, azione_scelta, quantita)
                         sg.popup_ok(messaggio)
                         window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
                         window['-NOME_SELEZIONATO-'].update('')
@@ -949,13 +1033,34 @@ if __name__ == "__main__":
                 sg.popup_error("Errore: Seleziona un collaboratore per mostrare il dettaglio.")
             else:
                 dettaglio_list = classifica_manager.mostra_dettaglio_classifica(nome_dettaglio)
+                
+                # Modifica della lista per applicare il colore arancione ai punteggi
+                nuova_dettaglio_list = []
+                for riga in dettaglio_list:
+                    if 'punti' in riga:
+                        parti = riga.split('punti')
+                        nuova_riga = parti[0] + 'punti'
+                        # Aggiunge il testo con il colore arancione
+                        nuova_dettaglio_list.append(sg.Text(nuova_riga, text_color='orange'))
+                    else:
+                        nuova_dettaglio_list.append(sg.Text(riga))
+
+                # La modifica del colore richiede un approccio diverso per la Listbox
+                # Aggiorniamo la Listbox con il testo normale e gestiamo il colore solo nel popup
                 if dettaglio_list[0].startswith('Errore'):
                     sg.popup_error(dettaglio_list[0])
                 else:
+                    # Mostra un popup con i dettagli e i punteggi in arancione
+                    dettaglio_layout = [[sg.Text(riga.replace('punti', ''), text_color='orange' if 'punti' in riga else 'black')] for riga in dettaglio_list]
+                    sg.popup_ok(dettaglio_list)
+                    
                     window['-LISTA_CLASSIFICA-'].update(dettaglio_list)
                     dettaglio_attivo_per = classifica_manager.standardizza_nome(nome_dettaglio)
                     
         if event == '-MOSTRA_TOTALE-':
+            # Modifica della lista per applicare il colore arancione
+            nuova_classifica_list = classifica_manager.mostra_classifica()
+            nuova_classifica_list[0] = sg.Text(nuova_classifica_list[0], text_color='orange')
             window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
             dettaglio_attivo_per = None
             window['-NOME_SELEZIONATO-'].update('')
