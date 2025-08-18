@@ -592,7 +592,10 @@ class ClassificaManager:
         """Genera il report HTML e lo carica su GitHub."""
         self.genera_report_html()
         carica_su_github()
-
+    
+    # 
+    # INIZIO CODICE MODIFICATO
+    # 
     def aggiungi_punti_da_checkin(self, nome_completo):
         """
         Aggiunge 50 punti per il "Meeting day" a un collaboratore,
@@ -604,17 +607,25 @@ class ClassificaManager:
         # Cerca il collaboratore in modo flessibile
         nome_standardizzato = self.cerca_collaboratore_flessibile(nome_completo)
 
-        if nome_standardizzato:
-            # Collaboratore trovato, verifica se ha già fatto il check-in oggi
-            for azione in self.dati_collaboratori.get(nome_standardizzato, []):
-                if azione['azione'] == 'Meeting day' and azione['data'].startswith(oggi_str):
-                    return f"Errore: {nome_standardizzato} ha già effettuato il check-in per il Meeting day di oggi."
+        # Se il collaboratore non esiste, crea un nuovo nome standardizzato
+        if not nome_standardizzato:
+            nome_standardizzato = self.standardizza_nome(nome_completo)
             
-            # Se non ha fatto il check-in, restituisce il nome per la conferma
-            return nome_standardizzato
-        else:
-            # Collaboratore non trovato
-            return "NON_TROVATO"
+        # Controlla se l'utente ha già 50 punti per il Meeting day oggi
+        punti_giornalieri_meeting = sum(
+            azione['punti'] for azione in self.dati_collaboratori.get(nome_standardizzato, [])
+            if azione['azione'] == 'Meeting day' and azione['data'].startswith(oggi_str)
+        )
+        
+        if punti_giornalieri_meeting >= 50:
+            return f"Errore: {nome_standardizzato} ha già raggiunto il limite di 50 punti per il Meeting day di oggi."
+        
+        # A questo punto, il collaboratore è valido e non ha ancora 50 punti oggi
+        # Restituisce il nome standardizzato per la conferma
+        return nome_standardizzato
+    # 
+    # FINE CODICE MODIFICATO
+    # 
             
 # --- Gestione server web e QR code ---
 class MyHandler(BaseHTTPRequestHandler):
@@ -656,7 +667,7 @@ class MyHandler(BaseHTTPRequestHandler):
                 </head>
                 <body>
                     <h1>Conferma Assegnazione Punti</h1>
-                    <p>Procedere con l'assegnazione di 50 punti "Meeting day" al collaboratore *{nome_collaboratore}*?</p>
+                    <p>Procedere con l'assegnazione di 50 punti "Meeting day" al collaboratore {nome_collaboratore}?</p>
                     <a href="/esegui_checkin?nome={quote(nome_collaboratore)}" class="button">Sì, conferma</a>
                 </body>
                 </html>
@@ -773,7 +784,7 @@ class MyHandler(BaseHTTPRequestHandler):
                     </head>
                     <body>
                         <h1>Attenzione!</h1>
-                        <p>Il collaboratore *{nome_std}* non è stato trovato.</p>
+                        <p>Il collaboratore {nome_std} non è stato trovato.</p>
                         <p>Vuoi creare un nuovo collaboratore con questo nome e assegnare i punti?</p>
                         <a href="/esegui_checkin?nome={quote(nome_std)}" class="button">Sì, crea e assegna</a>
                         <a href="/" class="button cancel">No, annulla</a>
