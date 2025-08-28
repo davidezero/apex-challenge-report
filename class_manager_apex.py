@@ -884,6 +884,10 @@ if __name__ == "__main__":
     
     azioni_disponibili = list(classifica_manager.punti_azioni.keys())
     dettaglio_attivo_per = None
+    
+    # Crea un menu contestuale dinamico
+    menu_azioni = list(classifica_manager.punti_azioni.keys())
+    right_click_menu_layout = ['&Menu', ['&Assegna punti azione', menu_azioni, '---', '&Modifica Nome']]
 
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
@@ -898,7 +902,7 @@ if __name__ == "__main__":
             [sg.Button("Aggiungi", key='-AGGIUNGI-')]
         ])],
         [sg.Frame("Visualizza e Modifica Classifica", [
-            [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True, right_click_menu=['', ['Assegna punti azione', 'Modifica Nome']])],
+            [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True, right_click_menu=right_click_menu_layout)],
             [sg.Text("Nome Selezionato:", size=(18, 1)), sg.Input(key='-NOME_SELEZIONATO-', size=(25, 1), disabled=True)],
             [sg.Button("Mostra Dettaglio", key='-MOSTRA_DETTAGLIO-'), sg.Button("Modifica Nome", key='-MODIFICA_NOME-')],
             [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-', button_color=('white', 'red')), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-', button_color=('white', 'red'))],
@@ -941,52 +945,24 @@ if __name__ == "__main__":
             else:
                 window['-QUANTITA-'].update(disabled=True)
                 window['-QUANTITA-'].update('1')
-        
+
         # Gestione del menu contestuale
-        if event == 'Assegna punti azione':
-            # Estrae il nome dalla riga selezionata, gestendo il caso in cui il dettaglio sia attivo
+        if event in menu_azioni:
             riga_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
             if ']' in riga_selezionata_str:
-                # E' un riga di dettaglio, prendo il nome da dettaglio_attivo_per
                 nome_selezionato = dettaglio_attivo_per
             else:
-                # E' una riga della classifica, estraggo il nome
-                nome_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
                 if '.' in riga_selezionata_str and ':' in riga_selezionata_str:
                     nome_selezionato = riga_selezionata_str.split(':', 1)[0].split('.', 1)[1].strip()
                 else:
                     sg.popup_error("Seleziona un collaboratore valido dalla lista.")
                     continue
 
-
-            # Mostra un popup per l'assegnazione punti
-            popup_layout = [
-                [sg.Text(f"Assegna punti a {nome_selezionato}")],
-                [sg.Text("Azione:"), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0], key='-POPUP_AZIONE-')],
-                [sg.Text("Quantità:"), sg.Input(default_text='1', key='-POPUP_QUANTITA-')],
-                [sg.Button("Conferma", key='-POPUP_CONFERMA-'), sg.Button("Annulla", key='-POPUP_ANNULLA-')]
-            ]
-            popup_window = sg.Window("Assegna Punti", popup_layout, modal=True, finalize=True)
-            
-            while True:
-                popup_event, popup_values = popup_window.read()
-                if popup_event == sg.WIN_CLOSED or popup_event == '-POPUP_ANNULLA-':
-                    break
-                if popup_event == '-POPUP_CONFERMA-':
-                    try:
-                        quantita = int(popup_values['-POPUP_QUANTITA-'])
-                        if quantita < 1:
-                            sg.popup_error("La quantità deve essere un numero intero maggiore di zero.")
-                            continue
-                        azione = popup_values['-POPUP_AZIONE-']
-                        messaggio = classifica_manager.aggiungi_azione(nome_selezionato, azione, quantita)
-                        sg.popup_ok(messaggio)
-                        window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                        break
-                    except ValueError:
-                        sg.popup_error("Inserisci un numero valido per la quantità.")
-            popup_window.close()
-        
+            if nome_selezionato:
+                messaggio = classifica_manager.aggiungi_azione(nome_selezionato, event)
+                sg.popup_ok(messaggio)
+                window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
+                
         if event == 'Modifica Nome':
             # Estrae il nome dalla riga selezionata, gestendo il caso in cui il dettaglio sia attivo
             riga_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
