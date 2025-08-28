@@ -175,31 +175,49 @@ class ClassificaManager:
         """
         Aggiunge l'azione specificata al collaboratore con il nome standardizzato.
         Gestisce l'aggiunta di più punti in una volta sola per azioni specifiche.
+        
+        *** MODIFICATO PER GESTIRE LA DUPLICAZIONE DEI PUNTI MEETING DAY ***
         """
-        punti_da_aggiungere = self.punti_azioni.get(azione, 0)
-        
-        if punti_da_aggiungere == 0:
-            return f"Errore: Azione '{azione}' non riconosciuta."
-        
-        # Se il collaboratore non esiste, viene creato
-        if nome_collaboratore_standardizzato not in self.dati_collaboratori:
-            self.dati_collaboratori[nome_collaboratore_standardizzato] = []
+        # Acquisisci il lock per evitare race condition durante la scrittura
+        checkin_lock.acquire()
+        try:
+            punti_da_aggiungere = self.punti_azioni.get(azione, 0)
+            
+            if punti_da_aggiungere == 0:
+                return f"Errore: Azione '{azione}' non riconosciuta."
+            
+            # Se l'azione è "Meeting day", controlla se è già stata registrata oggi
+            if azione == 'Meeting day':
+                oggi_str = datetime.now().strftime("%Y-%m-%d")
+                if nome_collaboratore_standardizzato in self.dati_collaboratori:
+                    for entry in self.dati_collaboratori[nome_collaboratore_standardizzato]:
+                        if entry['azione'] == 'Meeting day' and entry['data'].startswith(oggi_str):
+                            # Trovata una voce, non aggiungere e restituisci errore
+                            return f"Errore: {nome_collaboratore_standardizzato} ha già effettuato il check-in per il Meeting day di oggi."
 
-        # Aggiunge l'azione il numero di volte specificato
-        for _ in range(quantita):
-            self.dati_collaboratori[nome_collaboratore_standardizzato].append({
-                "azione": azione,
-                "punti": punti_da_aggiungere,
-                "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            })
+            # Se il collaboratore non esiste, viene creato
+            if nome_collaboratore_standardizzato not in self.dati_collaboratori:
+                self.dati_collaboratori[nome_collaboratore_standardizzato] = []
 
-        self.salva_dati()
-        self.salva_cronologia()
-        self.genera_report_html_e_carica()
-        if quantita > 1:
-            return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} per {quantita} volte. (+{punti_da_aggiungere * quantita} punti totali)."
-        else:
-            return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} (+{punti_da_aggiungere} punti)."
+            # Aggiunge l'azione il numero di volte specificato
+            for _ in range(quantita):
+                self.dati_collaboratori[nome_collaboratore_standardizzato].append({
+                    "azione": azione,
+                    "punti": punti_da_aggiungere,
+                    "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+            self.salva_dati()
+            self.salva_cronologia()
+            self.genera_report_html_e_carica()
+            
+            if quantita > 1:
+                return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} per {quantita} volte. (+{punti_da_aggiungere * quantita} punti totali)."
+            else:
+                return f"Aggiunta l'azione '{azione}' a {nome_collaboratore_standardizzato} (+{punti_da_aggiungere} punti)."
+        finally:
+            # Rilascia il lock
+            checkin_lock.release()
         
     def elimina_riga(self, nome_collaboratore, indice_riga):
         """
@@ -634,29 +652,10 @@ class ClassificaManager:
         self.genera_report_html()
         carica_su_github()
     
-    def aggiungi_punti_da_checkin(self, nome_completo):
-        """
-        Aggiunge 50 punti per il "Meeting day" a un collaboratore,
-        solo se non ha già ricevuto punti per la stessa azione oggi.
-        Gestisce anche la standardizzazione del nome per evitare duplicati.
-        """
-        oggi_str = datetime.now().strftime("%Y-%m-%d")
-        
-        # Cerca il collaboratore in modo flessibile
-        nome_standardizzato = self.cerca_collaboratore_flessibile(nome_completo)
-
-        if nome_standardizzato:
-            # Collaboratore trovato, verifica se ha già fatto il check-in oggi
-            for azione in self.dati_collaboratori.get(nome_standardizzato, []):
-                if azione['azione'] == 'Meeting day' and azione['data'].startswith(oggi_str):
-                    return f"Errore: {nome_standardizzato} ha già effettuato il check-in per il Meeting day di oggi."
-            
-            # Se non ha fatto il check-in, restituisce il nome per la conferma
-            return nome_standardizzato
-        else:
-            # Collaboratore non trovato
-            return "NON_TROVATO"
-            
+    # La funzione aggiungi_punti_da_checkin è stata rimossa, in quanto la logica di controllo
+    # è stata spostata direttamente nel metodo aggiungi_azione() per maggiore robustezza.
+    # Il web server ora chiama direttamente aggiungi_azione() e gestisce il suo output.
+    
 # --- Gestione server web e QR code ---
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -713,7 +712,17 @@ class MyHandler(BaseHTTPRequestHandler):
         elif path == '/esegui_checkin':
             nome_collaboratore = query_components.get('nome', [''])[0]
             if nome_collaboratore:
+                # *** MODIFICATO PER USARE LA NUOVA LOGICA DI CONTROLLO IN aggiungi_azione() ***
                 messaggio = classifica_manager.aggiungi_azione(nome_collaboratore, "Meeting day")
+                
+                # Prepara la risposta HTML in base al risultato
+                if "Errore" in messaggio:
+                    titolo = "Attenzione!"
+                    colore = "#ff6f00"
+                else:
+                    titolo = "Risultato Check-in"
+                    colore = "#0d47a1"
+
                 risposta_html = f"""
                 <!DOCTYPE html>
                 <html lang="it">
@@ -723,13 +732,13 @@ class MyHandler(BaseHTTPRequestHandler):
                     <title>Risultato Check-in</title>
                     <style>
                         body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
-                        h1 {{ color: #0d47a1; }}
+                        h1 {{ color: {colore}; }}
                         p {{ font-size: 1.2em; }}
-                        a {{ color: #0d47a1; }}
+                        a {{ color: {colore}; }}
                     </style>
                 </head>
                 <body>
-                    <h1>Risultato Check-in</h1>
+                    <h1>{titolo}</h1>
                     <p>{messaggio}</p>
                     <a href="/">Torna al modulo di check-in</a>
                 </body>
@@ -757,37 +766,17 @@ class MyHandler(BaseHTTPRequestHandler):
             nome_collaboratore = dati_form.get('nome', [''])[0]
 
             if nome_collaboratore:
-                messaggio_o_nome = classifica_manager.aggiungi_punti_da_checkin(nome_collaboratore)
+                nome_standardizzato = classifica_manager.cerca_collaboratore_flessibile(nome_collaboratore)
                 
-                # Caso 1: il collaboratore ha già fatto il check-in oggi
-                if messaggio_o_nome.startswith("Errore"):
-                    risposta_html = f"""
-                    <!DOCTYPE html>
-                    <html lang="it">
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>Check-in Apex Challenge</title>
-                        <style>
-                            body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
-                            h1 {{ color: #ff6f00; }}
-                            p {{ font-size: 1.2em; }}
-                        </style>
-                    </head>
-                    <body>
-                        <h1>Attenzione!</h1>
-                        <p>{messaggio_o_nome}</p>
-                        <a href="/">Torna al modulo di check-in</a>
-                    </body>
-                    </html>
-                    """
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/html; charset=utf-8')
+                # Caso 1: il collaboratore viene trovato
+                if nome_standardizzato:
+                    # In questo caso, lo ridirezioniamo alla pagina di conferma
+                    self.send_response(303)  # Codice di stato per "See Other"
+                    self.send_header('Location', f'/conferma_checkin?nome={quote(nome_standardizzato)}')
                     self.end_headers()
-                    self.wfile.write(risposta_html.encode('utf-8'))
-                
+
                 # Caso 2: il collaboratore non viene trovato (chiedi di creare)
-                elif messaggio_o_nome == "NON_TROVATO":
+                else:
                     nome_std = classifica_manager.standardizza_nome(nome_collaboratore)
                     risposta_html = f"""
                     <!DOCTYPE html>
@@ -825,12 +814,6 @@ class MyHandler(BaseHTTPRequestHandler):
                     self.send_header('Content-type', 'text/html; charset=utf-8')
                     self.end_headers()
                     self.wfile.write(risposta_html.encode('utf-8'))
-                
-                # Caso 3: il collaboratore viene trovato (chiedi di confermare)
-                else:
-                    self.send_response(303)  # Codice di stato per "See Other"
-                    self.send_header('Location', f'/conferma_checkin?nome={quote(messaggio_o_nome)}')
-                    self.end_headers()
             else:
                 self.send_response(400)
                 self.end_headers()
