@@ -634,9 +634,6 @@ class ClassificaManager:
         self.genera_report_html()
         carica_su_github()
     
-    # 
-    # INIZIO CODICE MODIFICATO
-    # 
     def aggiungi_punti_da_checkin(self, nome_completo):
         """
         Aggiunge 50 punti per il "Meeting day" a un collaboratore,
@@ -659,9 +656,6 @@ class ClassificaManager:
         else:
             # Collaboratore non trovato
             return "NON_TROVATO"
-    # 
-    # FINE CODICE MODIFICATO
-    # 
             
 # --- Gestione server web e QR code ---
 class MyHandler(BaseHTTPRequestHandler):
@@ -979,7 +973,8 @@ if __name__ == "__main__":
                 sg.popup_ok(f"Il nome del collaboratore è stato modificato da '{nome_attuale}' a '{classifica_manager.standardizza_nome(nuovo_nome)}'.")
                 window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
                 window['-NOME_SELEZIONATO-'].update('')
-                
+        
+        # INIZIO MODIFICA
         if event == '-LISTA_CLASSIFICA-':
             if values['-LISTA_CLASSIFICA-']:
                 riga_selezionata = values['-LISTA_CLASSIFICA-'][0]
@@ -989,18 +984,24 @@ if __name__ == "__main__":
                     if '.' in riga_selezionata and ':' in riga_selezionata:
                         nome = riga_selezionata.split(':', 1)[0].split('.', 1)[1].strip()
                         window['-NOME_SELEZIONATO-'].update(nome)
+                        window['-NOME-'].update(nome) # Inserisce il nome nel campo di input per l'aggiunta punti
                         dettaglio_attivo_per = None # Reset dettaglio attivo
                     elif ']' in riga_selezionata:
                         # Se è un dettaglio, estrae il nome dal titolo del dettaglio
                         nome_dettaglio_corrente = riga_selezionata.split(']')[0].split('[')[1].strip()
                         if nome_dettaglio_corrente in classifica_manager.dati_collaboratori:
                             window['-NOME_SELEZIONATO-'].update(nome_dettaglio_corrente)
+                            window['-NOME-'].update(nome_dettaglio_corrente) # Inserisce il nome nel campo di input
                         else:
                             window['-NOME_SELEZIONATO-'].update('')
+                            window['-NOME-'].update('')
                     else:
                         window['-NOME_SELEZIONATO-'].update('')
+                        window['-NOME-'].update('')
                 except (IndexError, ValueError):
                     window['-NOME_SELEZIONATO-'].update('')
+                    window['-NOME-'].update('')
+        # FINE MODIFICA
                 
         if event == '-AGGIUNGI-':
             nome_input = values['-NOME-'].strip()
