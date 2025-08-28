@@ -5,6 +5,8 @@
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Classifica Apex Challenge</title>
+                <link rel="manifest" href="manifest.json">
+                <link rel="apple-touch-icon" href="logo_512.png">
                 <style>
                     body {
                         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -132,6 +134,27 @@
                     }
                     .collaboratore-dettagli li:last-child {
                         border-bottom: none;
+                    }
+                    .leggenda {
+                        margin-top: 50px;
+                        text-align: left;
+                        border: 1px solid #ccc;
+                        padding: 20px;
+                        border-radius: 10px;
+                        background-color: #f9f9f9;
+                    }
+                    .leggenda h2 {
+                        color: #0d47a1;
+                        border-bottom: 2px solid #ff6f00;
+                        padding-bottom: 5px;
+                    }
+                    .leggenda ul {
+                        list-style-type: none;
+                        padding-left: 0;
+                    }
+                    .leggenda li {
+                        margin-bottom: 10px;
+                        font-weight: 500;
                     }
                     /* Media Queries per la visualizzazione mobile */
                     @media (max-width: 768px) {
@@ -851,6 +874,18 @@
                     </div>
                 
                     </div>
+                    
+        <div class="leggenda">
+            <h2>Regole Punti</h2>
+            <ul>
+                <li>Collaboratore diretto iscritt: 100pt ✔</li>
+                <li>Partecipazione ai meeting: 50pt ✔</li>
+                <li>Partecipazione ai cyl: 50pt ✔</li>
+                <li>Incentive da 5 contratti: 50 pt✔</li>
+                <li>Ospite seduti a step one: 25 pt ✔</li>
+            </ul>
+        </div>
+        
                 </div>
                 <script>
                     // Imposta la data e l'ora di chiusura del contest (23 ottobre 2025)

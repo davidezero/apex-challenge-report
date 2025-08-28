@@ -285,6 +285,20 @@ class ClassificaManager:
         """
         colore_primario = "#0d47a1"
         colore_secondario = "#ff6f00"
+
+        # Legenda dei punti come lista di elementi HTML
+        leggenda_punti_html = """
+        <div class="leggenda">
+            <h2>Regole Punti</h2>
+            <ul>
+                <li>Collaboratore diretto iscritt: 100pt ✔</li>
+                <li>Partecipazione ai meeting: 50pt ✔</li>
+                <li>Partecipazione ai cyl: 50pt ✔</li>
+                <li>Incentive da 5 contratti: 50 pt✔</li>
+                <li>Ospite seduti a step one: 25 pt ✔</li>
+            </ul>
+        </div>
+        """
         
         if not self.dati_collaboratori:
             report_content = f"""
@@ -297,6 +311,8 @@ class ClassificaManager:
                 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
                 <meta http-equiv="Pragma" content="no-cache">
                 <meta http-equiv="Expires" content="0">
+                <link rel="manifest" href="manifest.json">
+                <link rel="apple-touch-icon" href="logo_512.png">
                 <style>
                     body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
                 </style>
@@ -305,6 +321,7 @@ class ClassificaManager:
                 <img src="logo_ubroker.png" alt="Logo Ubroker" style="max-width: 200px; margin-bottom: 20px;">
                 <h1 style="color: {colore_primario};">CLASSIFICA APEX CHALLENGE</h1>
                 <h2>La classifica è vuota. Inserisci dei dati per generare il report.</h2>
+                {leggenda_punti_html}
             </body>
             </html>
             """
@@ -320,6 +337,8 @@ class ClassificaManager:
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Classifica Apex Challenge</title>
+                <link rel="manifest" href="manifest.json">
+                <link rel="apple-touch-icon" href="logo_512.png">
                 <style>
                     body {{
                         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -448,6 +467,27 @@ class ClassificaManager:
                     .collaboratore-dettagli li:last-child {{
                         border-bottom: none;
                     }}
+                    .leggenda {{
+                        margin-top: 50px;
+                        text-align: left;
+                        border: 1px solid #ccc;
+                        padding: 20px;
+                        border-radius: 10px;
+                        background-color: #f9f9f9;
+                    }}
+                    .leggenda h2 {{
+                        color: {colore_primario};
+                        border-bottom: 2px solid {colore_secondario};
+                        padding-bottom: 5px;
+                    }}
+                    .leggenda ul {{
+                        list-style-type: none;
+                        padding-left: 0;
+                    }}
+                    .leggenda li {{
+                        margin-bottom: 10px;
+                        font-weight: 500;
+                    }}
                     /* Media Queries per la visualizzazione mobile */
                     @media (max-width: 768px) {{
                         .classifica-item {{
@@ -546,15 +586,16 @@ class ClassificaManager:
                     </div>
                 """
             
-            html_content += """
+            html_content += f"""
                     </div>
+                    {leggenda_punti_html}
                 </div>
                 <script>
                     // Imposta la data e l'ora di chiusura del contest (23 ottobre 2025)
                     var countDownDate = new Date("Oct 23, 2025 23:59:59").getTime();
 
                     // Aggiorna il countdown ogni 1 secondo
-                    var x = setInterval(function() {
+                    var x = setInterval(function() {{
                       // Ottieni la data e l'ora attuali
                       var now = new Date().getTime();
 
@@ -571,11 +612,11 @@ class ClassificaManager:
                       document.getElementById("countdown-timer").innerHTML = days + "g " + hours + "h " + minutes + "m " + seconds + "s ";
 
                       // Se il countdown è finito, scrivi un messaggio
-                      if (distance < 0) {
+                      if (distance < 0) {{
                         clearInterval(x);
                         document.getElementById("countdown-timer").innerHTML = "Il contest è terminato!";
-                      }
-                    }, 1000);
+                      }}
+                    }}, 1000);
                 </script>
             </body>
             </html>
@@ -662,7 +703,7 @@ class MyHandler(BaseHTTPRequestHandler):
                 </head>
                 <body>
                     <h1>Conferma Assegnazione Punti</h1>
-                    <p>Procedere con l'assegnazione di 50 punti "Meeting day" al collaboratore *{nome_collaboratore}*?</p>
+                    <p>Procedere con l'assegnazione di 50 punti "Meeting day" al collaboratore {nome_collaboratore}?</p>
                     <a href="/esegui_checkin?nome={quote(nome_collaboratore)}" class="button">Sì, conferma</a>
                 </body>
                 </html>
@@ -779,7 +820,7 @@ class MyHandler(BaseHTTPRequestHandler):
                     </head>
                     <body>
                         <h1>Attenzione!</h1>
-                        <p>Il collaboratore *{nome_std}* non è stato trovato.</p>
+                        <p>Il collaboratore {nome_std} non è stato trovato.</p>
                         <p>Vuoi creare un nuovo collaboratore con questo nome e assegnare i punti?</p>
                         <a href="/esegui_checkin?nome={quote(nome_std)}" class="button">Sì, crea e assegna</a>
                         <a href="/" class="button cancel">No, annulla</a>
@@ -910,7 +951,13 @@ if __name__ == "__main__":
                 nome_selezionato = dettaglio_attivo_per
             else:
                 # E' una riga della classifica, estraggo il nome
-                nome_selezionato = riga_selezionata_str.split(':', 1)[0].split('.', 1)[1].strip()
+                nome_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
+                if '.' in riga_selezionata_str and ':' in riga_selezionata_str:
+                    nome_selezionato = riga_selezionata_str.split(':', 1)[0].split('.', 1)[1].strip()
+                else:
+                    sg.popup_error("Seleziona un collaboratore valido dalla lista.")
+                    continue
+
 
             # Mostra un popup per l'assegnazione punti
             popup_layout = [
