@@ -2,7 +2,8 @@ import json
 import os
 import webbrowser
 from datetime import datetime
-import PySimpleGUI as sg
+import tkinter as tk
+from tkinter import messagebox
 from urllib.parse import quote
 import subprocess
 import qrcode
@@ -10,6 +11,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from urllib.parse import urlparse, parse_qs
 from pyngrok import ngrok
+
+# Variabile globale per il lock
+checkin_lock = threading.Lock()
+# Variabile globale per l'URL pubblico di ngrok
+public_url = None
 
 # --- Funzione globale per il caricamento su GitHub ---
 def carica_su_github():
@@ -36,13 +42,13 @@ def carica_su_github():
             f"Codice di uscita: {e.returncode}\n"
             f"Messaggio di errore:\n{e.stderr}"
         )
-        sg.popup_error(error_message)
+        messagebox.showerror("Errore GitHub", error_message)
     except FileNotFoundError:
-        sg.popup_error("Errore: Git non è stato trovato. Assicurati che sia installato e configurato correttamente.")
+        messagebox.showerror("Errore Git", "Errore: Git non è stato trovato. Assicurati che sia installato e configurato correttamente.")
     except subprocess.TimeoutExpired:
-        sg.popup_error("Errore: L'operazione Git è andata in timeout. Prova a verificare la tua connessione internet o le dimensioni del repository.")
+        messagebox.showerror("Errore Git", "Errore: L'operazione Git è andata in timeout. Prova a verificare la tua connessione internet o le dimensioni del repository.")
     except Exception as e:
-        sg.popup_error(f"Si è verificato un errore inaspettato durante il caricamento su GitHub: {e}")
+        messagebox.showerror("Errore Inaspettato", f"Si è verificato un errore inaspettato durante il caricamento su GitHub: {e}")
     return False
 
 class ClassificaManager:
@@ -145,7 +151,7 @@ class ClassificaManager:
                 caricato_con_successo = True
             except json.JSONDecodeError:
                 # Il file principale è corrotto, tenta il ripristino
-                sg.popup_error(f"Errore: Il file '{self.filename}' è corrotto. Tentativo di ripristino automatico dall'ultimo backup...")
+                messagebox.showerror("Errore Caricamento", f"Errore: Il file '{self.filename}' è corrotto. Tentativo di ripristino automatico dall'ultimo backup...")
                 
         if not caricato_con_successo:
             ultimo_backup = self.trova_ultimo_backup()
@@ -156,12 +162,12 @@ class ClassificaManager:
                     
                     # Sovrascrivi il file principale con i dati del backup
                     self.salva_dati()
-                    sg.popup_ok(f"Ripristino automatico riuscito!\nI dati sono stati recuperati da:\n'{os.path.basename(ultimo_backup)}'")
+                    messagebox.showinfo("Ripristino", f"Ripristino automatico riuscito!\nI dati sono stati recuperati da:\n'{os.path.basename(ultimo_backup)}'")
                 except (json.JSONDecodeError, FileNotFoundError):
-                    sg.popup_error("Errore: Impossibile caricare il backup. La classifica verrà inizializzata vuota.")
+                    messagebox.showerror("Errore Ripristino", "Errore: Impossibile caricare il backup. La classifica verrà inizializzata vuota.")
                     self.dati_collaboratori = {}
             else:
-                sg.popup_ok("Nessun backup trovato. La classifica verrà inizializzata vuota.")
+                messagebox.showinfo("Avviso", "Nessun backup trovato. La classifica verrà inizializzata vuota.")
                 self.dati_collaboratori = {}
 
     def salva_dati(self):
@@ -597,7 +603,7 @@ class ClassificaManager:
                 azioni = self.dati_collaboratori[nome]
                 for i, azione in enumerate(azioni):
                     html_content += f"""
-                        <li>- Azione: {azione['azione']} (+{azione['punti']} punti) - Data: {azione['data']}</li>
+                            <li>- Azione: {azione['azione']} (+{azione['punti']} punti) - Data: {azione['data']}</li>
                     """
                 html_content += """
                         </ul>
@@ -651,10 +657,6 @@ class ClassificaManager:
         """Genera il report HTML e lo carica su GitHub."""
         self.genera_report_html()
         carica_su_github()
-    
-    # La funzione aggiungi_punti_da_checkin è stata rimossa, in quanto la logica di controllo
-    # è stata spostata direttamente nel metodo aggiungi_azione() per maggiore robustezza.
-    # Il web server ora chiama direttamente aggiungi_azione() e gestisce il suo output.
     
 # --- Gestione server web e QR code ---
 class MyHandler(BaseHTTPRequestHandler):
@@ -720,419 +722,312 @@ class MyHandler(BaseHTTPRequestHandler):
                     titolo = "Attenzione!"
                     colore = "#ff6f00"
                 else:
-                    titolo = "Risultato Check-in"
+                    titolo = "Check-in Completato!"
                     colore = "#0d47a1"
-
-                risposta_html = f"""
+                
+                # Risposta HTML finale
+                risposta_finale_html = f"""
                 <!DOCTYPE html>
                 <html lang="it">
                 <head>
                     <meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Risultato Check-in</title>
+                    <title>{titolo}</title>
                     <style>
                         body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
                         h1 {{ color: {colore}; }}
                         p {{ font-size: 1.2em; }}
-                        a {{ color: {colore}; }}
                     </style>
                 </head>
                 <body>
                     <h1>{titolo}</h1>
                     <p>{messaggio}</p>
-                    <a href="/">Torna al modulo di check-in</a>
                 </body>
                 </html>
                 """
                 self.send_response(200)
                 self.send_header('Content-type', 'text/html; charset=utf-8')
                 self.end_headers()
-                self.wfile.write(risposta_html.encode('utf-8'))
+                self.wfile.write(risposta_finale_html.encode('utf-8'))
             else:
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(b"Errore: Nome non fornito per l'esecuzione del check-in.")
+        elif path == '/logo_ubroker.png':
+            try:
+                self.send_response(200)
+                self.send_header('Content-type', 'image/png')
+                self.end_headers()
+                with open('logo_ubroker.png', 'rb') as file:
+                    self.wfile.write(file.read())
+            except FileNotFoundError:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"File non trovato.")
+        elif path == '/favicon.ico':
+            self.send_response(204)
+            self.end_headers()
         else:
             self.send_response(404)
+            self.send_header('Content-type', 'text/plain')
             self.end_headers()
-            self.wfile.write(b"404 Not Found")
+            self.wfile.write(b"Pagina non trovata.")
 
-    def do_POST(self):
-        if self.path == '/submit_checkin':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length).decode('utf-8')
-            dati_form = parse_qs(post_data)
-            
-            nome_collaboratore = dati_form.get('nome', [''])[0]
+# --- Avvio del server in un thread separato ---
+class ServerThread(threading.Thread):
+    def __init__(self, port, server_class=HTTPServer, handler_class=MyHandler):
+        threading.Thread.__init__(self)
+        self.port = port
+        self.server_class = server_class
+        self.handler_class = handler_class
+        self.httpd = None
+        self.is_running = False
 
-            if nome_collaboratore:
-                nome_standardizzato = classifica_manager.cerca_collaboratore_flessibile(nome_collaboratore)
-                
-                # Caso 1: il collaboratore viene trovato
-                if nome_standardizzato:
-                    # In questo caso, lo ridirezioniamo alla pagina di conferma
-                    self.send_response(303)  # Codice di stato per "See Other"
-                    self.send_header('Location', f'/conferma_checkin?nome={quote(nome_standardizzato)}')
-                    self.end_headers()
+    def run(self):
+        try:
+            self.server_address = ('', self.port)
+            self.httpd = self.server_class(self.server_address, self.handler_class)
+            self.is_running = True
+            print(f"Server avviato sulla porta {self.port}...")
+            self.httpd.serve_forever()
+        except Exception as e:
+            print(f"Errore durante l'avvio del server: {e}")
+        finally:
+            self.is_running = False
 
-                # Caso 2: il collaboratore non viene trovato (chiedi di creare)
-                else:
-                    nome_std = classifica_manager.standardizza_nome(nome_collaboratore)
-                    risposta_html = f"""
-                    <!DOCTYPE html>
-                    <html lang="it">
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>Check-in Apex Challenge</title>
-                        <style>
-                            body {{ font-family: sans-serif; text-align: center; margin-top: 50px; }}
-                            h1 {{ color: #ff6f00; }}
-                            p {{ font-size: 1.2em; }}
-                            a.button {{
-                                display: inline-block;
-                                padding: 10px 20px;
-                                background-color: #0d47a1;
-                                color: #fff;
-                                text-decoration: none;
-                                border-radius: 5px;
-                                margin: 10px;
-                            }}
-                            a.button.cancel {{ background-color: #ccc; }}
-                        </style>
-                    </head>
-                    <body>
-                        <h1>Attenzione!</h1>
-                        <p>Il collaboratore {nome_std} non è stato trovato.</p>
-                        <p>Vuoi creare un nuovo collaboratore con questo nome e assegnare i punti?</p>
-                        <a href="/esegui_checkin?nome={quote(nome_std)}" class="button">Sì, crea e assegna</a>
-                        <a href="/" class="button cancel">No, annulla</a>
-                    </body>
-                    </html>
-                    """
-                    self.send_response(200)
-                    self.send_header('Content-type', 'text/html; charset=utf-8')
-                    self.end_headers()
-                    self.wfile.write(risposta_html.encode('utf-8'))
-            else:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Errore: Nome non fornito nel modulo.")
+    def stop(self):
+        if self.httpd:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+            print("Server arrestato.")
 
-
-def run_server():
-    server_address = ('', 8000)
-    httpd = HTTPServer(server_address, MyHandler)
-    httpd.serve_forever()
-
-def genera_qrcode_meeting_day():
-    try:
-        ngrok.kill()
-        tunnel = ngrok.connect(addr="8000", proto="http")
-        public_url = tunnel.public_url
-
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(public_url)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        filename = "qrcode_meeting_day.png"
-        img.save(filename)
-
-        return filename, public_url
-    except Exception as e:
-        sg.popup_error(f"Errore durante l'avvio di Ngrok: {e}\nAssicurati che Ngrok sia installato e che il token di autenticazione sia valido.")
-        return None, None
-
-# --- Impostazioni Globali ---
-URL_REPORT_ONLINE = "https://davidezero.github.io/apex-challenge-report/"
-checkin_lock = threading.Lock()
-
-# --- Interfaccia Grafica ---
-if __name__ == "__main__":
-    # Imposta il font globale a grassetto
-    sg.set_options(font=('Helvetica', 12, 'bold'))
-
+# --- Interfaccia principale (PySimpleGUI rimosso) ---
+def main():
+    global classifica_manager
+    global public_url
     classifica_manager = ClassificaManager()
     
-    azioni_disponibili = list(classifica_manager.punti_azioni.keys())
-    dettaglio_attivo_per = None
-    
-    # Crea un menu contestuale dinamico
-    menu_azioni = list(classifica_manager.punti_azioni.keys())
-    right_click_menu_layout = ['&Menu', ['&Assegna punti azione', menu_azioni, '---', '&Modifica Nome']]
-
-    server_thread = threading.Thread(target=run_server)
+    server_port = 8000
+    server_thread = ServerThread(server_port)
     server_thread.daemon = True
     server_thread.start()
-    
-    # Nuovi layout organizzati in colonne
-    column_left = [
-        [sg.Frame("Aggiungi Punti", [
-            [sg.Text("Nome Collaboratore:", size=(15, 1)), sg.Input(key='-NOME-', size=(25, 1))],
-            [sg.Text("Azione:", size=(15, 1)), sg.Combo(azioni_disponibili, default_value=azioni_disponibili[0] if azioni_disponibili else '', key='-AZIONE-', size=(23, 1), enable_events=True)],
-            [sg.Text("Quantità:", size=(15, 1)), sg.Input(default_text='1', key='-QUANTITA-', size=(5, 1), disabled=True)],
-            [sg.Button("Aggiungi", key='-AGGIUNGI-')]
-        ])],
-        [sg.Frame("Visualizza e Modifica Classifica", [
-            [sg.Listbox(values=classifica_manager.mostra_classifica(), size=(60, 15), key='-LISTA_CLASSIFICA-', enable_events=True, right_click_menu=right_click_menu_layout)],
-            [sg.Text("Nome Selezionato:", size=(18, 1)), sg.Input(key='-NOME_SELEZIONATO-', size=(25, 1), disabled=True)],
-            [sg.Button("Mostra Dettaglio", key='-MOSTRA_DETTAGLIO-'), sg.Button("Modifica Nome", key='-MODIFICA_NOME-')],
-            [sg.Button("Elimina Riga Selezionata", key='-ELIMINA_RIGA-', button_color=('white', 'red')), sg.Button("Elimina Collaboratore", key='-ELIMINA_COLLABORATORE-', button_color=('white', 'red'))],
-            [sg.Button("Mostra Classifica Totale", key='-MOSTRA_TOTALE-')],
-        ])]
-    ]
-    
-    column_right = [
-        [sg.Frame("Gestione Check-in Meeting Day", [
-            [sg.Button("Genera QR Code", key='-GENERA_QR-')],
-            [sg.Image(filename='', key='-QR_CODE-', size=(200, 200))],
-            [sg.Text("URL per il check-in:", size=(18,1)), sg.Text("", key='-URL_CHECKIN-', size=(40,1), font=("Helvetica", 10))],
-        ])],
-        [sg.Frame("Genera Report e Altro", [
-            [sg.Button("Genera e Carica Report HTML", key='-GENERA_REPORT_E_CARICA-')],
-            [sg.Button("Condividi su WhatsApp", key='-WHATSAPP-')],
-            [sg.Button("Visualizza Cronologia", key='-CRONOLOGIA-')],
-            [sg.Button("Esci", key='-ESCI-', pad=(5, (10, 0)))]
-        ])]
-    ]
 
-    layout = [
-        [sg.Text("CLASSIFICA APEX CHALLENGE", size=(60, 1), justification='center', font=("Helvetica", 16, 'bold'), text_color='orange')],
-        [sg.Column(column_left), sg.Column(column_right, vertical_alignment='top')],
-    ]
-    
-    window = sg.Window("Apex Challenge Manager", layout, finalize=True)
-    
-    while True:
-        event, values = window.read()
+    # Creazione della finestra principale di Tkinter
+    window = tk.Tk()
+    window.title("Apex Challenge Report")
+
+    # Funzione per gestire l'avvio e la chiusura di ngrok
+    def gestisci_ngrok(action):
+        global public_url  # Modificato 'nonlocal' in 'global'
+        if action == "start":
+            if public_url:
+                messagebox.showinfo("ngrok", f"ngrok è già in esecuzione: {public_url}")
+                return
+            try:
+                tunnel = ngrok.connect(server_port)
+                public_url = tunnel.public_url
+                qrcode_img = qrcode.make(f"{public_url}/?nome=nome_collaboratore")
+                qrcode_img.save("qrcode.png")
+                messagebox.showinfo("ngrok Avviato", f"ngrok è stato avviato con successo. URL: {public_url}")
+            except Exception as e:
+                messagebox.showerror("Errore ngrok", f"Errore durante l'avvio di ngrok: {e}")
+        elif action == "stop":
+            if not public_url:
+                messagebox.showinfo("ngrok", "ngrok non è in esecuzione.")
+                return
+            try:
+                ngrok.kill()
+                public_url = None
+                if os.path.exists("qrcode.png"):
+                    os.remove("qrcode.png")
+                messagebox.showinfo("ngrok Arrestato", "ngrok è stato arrestato con successo.")
+            except Exception as e:
+                messagebox.showerror("Errore ngrok", f"Errore durante l'arresto di ngrok: {e}")
+
+    # Funzione per mostrare la finestra di gestione collaboratori
+    def mostra_finestra_gestione():
+        finestra_gestione = tk.Toplevel(window)
+        finestra_gestione.title("Gestione Classifica")
+
+        # Funzione per aggiornare la lista dei collaboratori
+        def aggiorna_lista_collaboratori():
+            lista_box.delete(0, tk.END)
+            for nome, _ in classifica_manager.dati_collaboratori.items():
+                lista_box.insert(tk.END, nome)
+
+        # Aggiungi collaboratore
+        frame_aggiungi = tk.LabelFrame(finestra_gestione, text="Aggiungi Collaboratore")
+        frame_aggiungi.pack(padx=10, pady=5)
         
-        if event == sg.WIN_CLOSED or event == '-ESCI-':
+        tk.Label(frame_aggiungi, text="Nome:").pack(side=tk.LEFT)
+        entry_aggiungi = tk.Entry(frame_aggiungi)
+        entry_aggiungi.pack(side=tk.LEFT)
+        def aggiungi_collaboratore():
+            nome = entry_aggiungi.get()
+            if nome:
+                nome_std = classifica_manager.standardizza_nome(nome)
+                if nome_std not in classifica_manager.dati_collaboratori:
+                    classifica_manager.dati_collaboratori[nome_std] = []
+                    classifica_manager.salva_dati()
+                    classifica_manager.salva_cronologia()
+                    classifica_manager.genera_report_html_e_carica()
+                    messagebox.showinfo("Successo", f"Collaboratore '{nome_std}' aggiunto.")
+                    aggiorna_lista_collaboratori()
+                else:
+                    messagebox.showerror("Errore", "Collaboratore già esistente.")
+        tk.Button(frame_aggiungi, text="Aggiungi", command=aggiungi_collaboratore).pack(side=tk.LEFT)
+
+        # Modifica nome
+        frame_modifica = tk.LabelFrame(finestra_gestione, text="Modifica Nome")
+        frame_modifica.pack(padx=10, pady=5)
+        
+        tk.Label(frame_modifica, text="Nuovo Nome:").pack(side=tk.LEFT)
+        entry_modifica = tk.Entry(frame_modifica)
+        entry_modifica.pack(side=tk.LEFT)
+        def modifica_nome():
+            selezione = lista_box.curselection()
+            if not selezione:
+                messagebox.showerror("Errore", "Seleziona un collaboratore dalla lista.")
+                return
+            nome_attuale = lista_box.get(selezione[0])
+            nuovo_nome = entry_modifica.get()
+            if nuovo_nome:
+                if classifica_manager.modifica_nome_collaboratore(nome_attuale, nuovo_nome):
+                    messagebox.showinfo("Successo", f"Nome modificato da '{nome_attuale}' a '{nuovo_nome}'.")
+                    aggiorna_lista_collaboratori()
+                else:
+                    messagebox.showerror("Errore", "Impossibile modificare il nome.")
+        tk.Button(frame_modifica, text="Modifica", command=modifica_nome).pack(side=tk.LEFT)
+
+        # Elimina collaboratore
+        frame_elimina = tk.LabelFrame(finestra_gestione, text="Elimina Collaboratore")
+        frame_elimina.pack(padx=10, pady=5)
+        
+        def elimina_collaboratore():
+            selezione = lista_box.curselection()
+            if not selezione:
+                messagebox.showerror("Errore", "Seleziona un collaboratore dalla lista.")
+                return
+            nome_da_eliminare = lista_box.get(selezione[0])
+            conferma = messagebox.askyesno("Conferma Eliminazione", f"Sei sicuro di voler eliminare '{nome_da_eliminare}' e tutti i suoi dati?")
+            if conferma:
+                risultato = classifica_manager.elimina_collaboratore(nome_da_eliminare)
+                messagebox.showinfo("Risultato", risultato)
+                aggiorna_lista_collaboratori()
+        tk.Button(frame_elimina, text="Elimina", command=elimina_collaboratore).pack()
+
+        # Visualizza lista
+        lista_box = tk.Listbox(finestra_gestione, width=40, height=15)
+        lista_box.pack(padx=10, pady=10)
+        aggiorna_lista_collaboratori()
+
+    # Funzione per mostrare la finestra di gestione punti
+    def mostra_finestra_punti():
+        finestra_punti = tk.Toplevel(window)
+        finestra_punti.title("Gestione Punti")
+        
+        # Aggiungi punti
+        frame_aggiungi_punti = tk.LabelFrame(finestra_punti, text="Aggiungi Punti")
+        frame_aggiungi_punti.pack(padx=10, pady=5)
+        
+        tk.Label(frame_aggiungi_punti, text="Collaboratore:").pack()
+        entry_collaboratore = tk.Entry(frame_aggiungi_punti)
+        entry_collaboratore.pack()
+        
+        tk.Label(frame_aggiungi_punti, text="Azione:").pack()
+        opzioni_azioni = list(classifica_manager.punti_azioni.keys())
+        variabile_azione = tk.StringVar(finestra_punti)
+        variabile_azione.set(opzioni_azioni[0])
+        menu_azioni = tk.OptionMenu(frame_aggiungi_punti, variabile_azione, *opzioni_azioni)
+        menu_azioni.pack()
+        
+        def aggiungi_punti():
+            nome_input = entry_collaboratore.get()
+            azione = variabile_azione.get()
+            nome_std = classifica_manager.cerca_collaboratore_flessibile(nome_input)
+            if nome_std:
+                risultato = classifica_manager.aggiungi_azione(nome_std, azione)
+                messagebox.showinfo("Risultato", risultato)
+            else:
+                messagebox.showerror("Errore", f"Collaboratore '{nome_input}' non trovato.")
+        tk.Button(frame_aggiungi_punti, text="Aggiungi Punti", command=aggiungi_punti).pack(pady=5)
+        
+        # Elimina riga
+        frame_elimina_riga = tk.LabelFrame(finestra_punti, text="Elimina Riga Punti")
+        frame_elimina_riga.pack(padx=10, pady=5)
+        
+        tk.Label(frame_elimina_riga, text="Collaboratore:").pack()
+        entry_collaboratore_elimina = tk.Entry(frame_elimina_riga)
+        entry_collaboratore_elimina.pack()
+        
+        tk.Label(frame_elimina_riga, text="Indice Riga (partendo da 1):").pack()
+        entry_indice_elimina = tk.Entry(frame_elimina_riga)
+        entry_indice_elimina.pack()
+        
+        def elimina_riga():
+            nome_input = entry_collaboratore_elimina.get()
+            try:
+                indice = int(entry_indice_elimina.get()) - 1
+                risultato = classifica_manager.elimina_riga(nome_input, indice)
+                messagebox.showinfo("Risultato", risultato)
+            except ValueError:
+                messagebox.showerror("Errore", "L'indice di riga deve essere un numero intero.")
+        tk.Button(frame_elimina_riga, text="Elimina Riga", command=elimina_riga).pack(pady=5)
+
+    # Funzione per mostrare la finestra di report
+    def mostra_finestra_report():
+        finestra_report = tk.Toplevel(window)
+        finestra_report.title("Report e Classifica")
+
+        tk.Label(finestra_report, text="Opzioni Report", font=("Arial", 14, "bold")).pack(pady=10)
+
+        def apri_report_locale():
+            classifica_manager.genera_report_html()
+            report_path = os.path.abspath("index.html")
+            webbrowser.open(f"file://{report_path}")
+        tk.Button(finestra_report, text="Apri Report Locale", command=apri_report_locale).pack(pady=5)
+
+        def carica_e_aggiorna():
+            if classifica_manager.genera_report_html_e_carica():
+                messagebox.showinfo("Successo", "Report HTML generato e caricato su GitHub con successo!")
+            else:
+                messagebox.showerror("Errore", "Caricamento su GitHub fallito.")
+        tk.Button(finestra_report, text="Carica e Aggiorna su GitHub", command=carica_e_aggiorna).pack(pady=5)
+
+    # Layout della finestra principale
+    tk.Label(window, text="APEX CHALLENGE REPORT", font=("Arial", 16, "bold")).pack(pady=20)
+
+    # Creazione del menu principale
+    menu_principale = tk.Menu(window)
+    window.config(menu=menu_principale)
+    
+    opzioni_menu = tk.Menu(menu_principale, tearoff=0)
+    menu_principale.add_cascade(label="Opzioni", menu=opzioni_menu)
+    opzioni_menu.add_command(label="Gestione Collaboratori", command=mostra_finestra_gestione)
+    opzioni_menu.add_command(label="Gestione Punti", command=mostra_finestra_punti)
+    opzioni_menu.add_command(label="Report e Classifica", command=mostra_finestra_report)
+    opzioni_menu.add_command(label="Avvia ngrok", command=lambda: gestisci_ngrok("start"))
+    opzioni_menu.add_command(label="Ferma ngrok", command=lambda: gestisci_ngrok("stop"))
+    opzioni_menu.add_command(label="Mostra QR Code", command=lambda: os.startfile("qrcode.png") if os.path.exists("qrcode.png") else messagebox.showinfo("Avviso", "QR code non generato. Avvia ngrok prima."))
+    
+    # Pulsanti nella finestra principale
+    tk.Button(window, text="Gestione Collaboratori", command=mostra_finestra_gestione).pack(pady=5, padx=20, fill=tk.X)
+    tk.Button(window, text="Gestione Punti", command=mostra_finestra_punti).pack(pady=5, padx=20, fill=tk.X)
+    tk.Button(window, text="Report e Classifica", command=mostra_finestra_report).pack(pady=5, padx=20, fill=tk.X)
+    
+    # Avvia ngrok all'inizio
+    gestisci_ngrok("start")
+    
+    # Funzione per gestire la chiusura dell'applicazione
+    def on_closing():
+        if server_thread and server_thread.is_running:
+            server_thread.stop()
+        if public_url:
             ngrok.kill()
-            break
+        window.destroy()
 
-        # Abilita/Disabilita il campo quantità in base all'azione selezionata
-        if event == '-AZIONE-':
-            if values['-AZIONE-'] in ['Collaboratore diretto', 'Ospite step one']:
-                window['-QUANTITA-'].update(disabled=False)
-            else:
-                window['-QUANTITA-'].update(disabled=True)
-                window['-QUANTITA-'].update('1')
+    window.protocol("WM_DELETE_WINDOW", on_closing)
+    window.mainloop()
 
-        # Gestione del menu contestuale
-        if event in menu_azioni:
-            riga_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
-            if ']' in riga_selezionata_str:
-                nome_selezionato = dettaglio_attivo_per
-            else:
-                if '.' in riga_selezionata_str and ':' in riga_selezionata_str:
-                    nome_selezionato = riga_selezionata_str.split(':', 1)[0].split('.', 1)[1].strip()
-                else:
-                    sg.popup_error("Seleziona un collaboratore valido dalla lista.")
-                    continue
-
-            if nome_selezionato:
-                messaggio = classifica_manager.aggiungi_azione(nome_selezionato, event)
-                sg.popup_ok(messaggio)
-                window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                
-        if event == 'Modifica Nome':
-            # Estrae il nome dalla riga selezionata, gestendo il caso in cui il dettaglio sia attivo
-            riga_selezionata_str = values['-LISTA_CLASSIFICA-'][0]
-            if ']' in riga_selezionata_str:
-                nome_attuale = dettaglio_attivo_per
-            else:
-                nome_attuale = riga_selezionata_str.split(':', 1)[0].split('.', 1)[1].strip()
-
-            nuovo_nome = sg.popup_get_text("Inserisci il nuovo nome per il collaboratore:", "Modifica Nome", default_text=nome_attuale)
-            if not nuovo_nome:
-                sg.popup_ok("Operazione annullata.")
-            else:
-                classifica_manager.modifica_nome_collaboratore(nome_attuale, nuovo_nome)
-                sg.popup_ok(f"Il nome del collaboratore è stato modificato da '{nome_attuale}' a '{classifica_manager.standardizza_nome(nuovo_nome)}'.")
-                window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                window['-NOME_SELEZIONATO-'].update('')
-        
-        # INIZIO MODIFICA
-        if event == '-LISTA_CLASSIFICA-':
-            if values['-LISTA_CLASSIFICA-']:
-                riga_selezionata = values['-LISTA_CLASSIFICA-'][0]
-                
-                try:
-                    # Estrae il nome dalla riga della classifica
-                    if '.' in riga_selezionata and ':' in riga_selezionata:
-                        nome = riga_selezionata.split(':', 1)[0].split('.', 1)[1].strip()
-                        window['-NOME_SELEZIONATO-'].update(nome)
-                        window['-NOME-'].update(nome) # Inserisce il nome nel campo di input per l'aggiunta punti
-                        dettaglio_attivo_per = None # Reset dettaglio attivo
-                    elif ']' in riga_selezionata:
-                        # Se è un dettaglio, estrae il nome dal titolo del dettaglio
-                        nome_dettaglio_corrente = riga_selezionata.split(']')[0].split('[')[1].strip()
-                        if nome_dettaglio_corrente in classifica_manager.dati_collaboratori:
-                            window['-NOME_SELEZIONATO-'].update(nome_dettaglio_corrente)
-                            window['-NOME-'].update(nome_dettaglio_corrente) # Inserisce il nome nel campo di input
-                        else:
-                            window['-NOME_SELEZIONATO-'].update('')
-                            window['-NOME-'].update('')
-                    else:
-                        window['-NOME_SELEZIONATO-'].update('')
-                        window['-NOME-'].update('')
-                except (IndexError, ValueError):
-                    window['-NOME_SELEZIONATO-'].update('')
-                    window['-NOME-'].update('')
-        # FINE MODIFICA
-                
-        if event == '-AGGIUNGI-':
-            nome_input = values['-NOME-'].strip()
-            azione_scelta = values['-AZIONE-']
-            quantita_input = values['-QUANTITA-']
-            
-            if not nome_input:
-                sg.popup_error("Errore: Inserisci un nome per il collaboratore.")
-            elif not azione_scelta:
-                sg.popup_error("Errore: Seleziona un'azione.")
-            else:
-                try:
-                    quantita = int(quantita_input)
-                    if quantita < 1:
-                        sg.popup_error("La quantità deve essere un numero intero maggiore di zero.")
-                        continue
-                except ValueError:
-                    sg.popup_error("Inserisci un numero valido per la quantità.")
-                    continue
-
-                nome_esistente = classifica_manager.cerca_collaboratore_flessibile(nome_input)
-                
-                if nome_esistente:
-                    conferma = sg.popup_yes_no(f"Hai inserito '{nome_input}'. Il sistema ha trovato un collaboratore esistente: '{nome_esistente}'. Vuoi assegnare i punti a '{nome_esistente}'?", title="Conferma Assegnazione")
-                    if conferma == 'Yes':
-                        messaggio = classifica_manager.aggiungi_azione(nome_esistente, azione_scelta, quantita)
-                        sg.popup_ok(messaggio)
-                        window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                        window['-NOME_SELEZIONATO-'].update('')
-                else:
-                    nome_standardizzato = classifica_manager.standardizza_nome(nome_input)
-                    conferma = sg.popup_yes_no(f"Il collaboratore '{nome_input}' non è stato trovato. Vuoi creare un nuovo collaboratore con questo nome e assegnargli i punti?", title="Crea Nuovo Collaboratore")
-                    if conferma == 'Yes':
-                        messaggio = classifica_manager.aggiungi_azione(nome_standardizzato, azione_scelta, quantita)
-                        sg.popup_ok(messaggio)
-                        window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                        window['-NOME_SELEZIONATO-'].update('')
-        
-        if event == '-MODIFICA_NOME-':
-            nome_attuale = values['-NOME_SELEZIONATO-'].strip()
-            nuovo_nome = sg.popup_get_text("Inserisci il nuovo nome per il collaboratore:", "Modifica Nome")
-            
-            if not nome_attuale:
-                sg.popup_ok("Errore: Seleziona un collaboratore prima di modificarne il nome.")
-            elif not nuovo_nome:
-                sg.popup_ok("Operazione annullata.")
-            else:
-                nome_attuale_std = classifica_manager.standardizza_nome(nome_attuale)
-                if nome_attuale_std not in classifica_manager.dati_collaboratori:
-                    sg.popup_ok(f"Errore: Il collaboratore '{nome_attuale}' non esiste.")
-                else:
-                    classifica_manager.modifica_nome_collaboratore(nome_attuale, nuovo_nome)
-                    sg.popup_ok(f"Il nome del collaboratore è stato modificato da '{nome_attuale_std}' a '{classifica_manager.standardizza_nome(nuovo_nome)}'.")
-                    window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                    window['-NOME_SELEZIONATO-'].update('')
-        
-        if event == '-MOSTRA_DETTAGLIO-':
-            nome_dettaglio = values['-NOME_SELEZIONATO-'].strip()
-            if not nome_dettaglio:
-                sg.popup_error("Errore: Seleziona un collaboratore per mostrare il dettaglio.")
-            else:
-                dettaglio_list = classifica_manager.mostra_dettaglio_classifica(nome_dettaglio)
-                
-                # Modifica della lista per applicare il colore arancione ai punteggi
-                nuova_dettaglio_list = []
-                for riga in dettaglio_list:
-                    if 'punti' in riga:
-                        parti = riga.split('punti')
-                        nuova_riga = parti[0] + 'punti'
-                        # Aggiunge il testo con il colore arancione
-                        nuova_dettaglio_list.append(sg.Text(nuova_riga, text_color='orange'))
-                    else:
-                        nuova_dettaglio_list.append(sg.Text(riga))
-
-                # La modifica del colore richiede un approccio diverso per la Listbox
-                # Aggiorniamo la Listbox con il testo normale e gestiamo il colore solo nel popup
-                if dettaglio_list[0].startswith('Errore'):
-                    sg.popup_error(dettaglio_list[0])
-                else:
-                    # Mostra un popup con i dettagli e i punteggi in arancione
-                    dettaglio_layout = [[sg.Text(riga.replace('punti', ''), text_color='orange' if 'punti' in riga else 'black')] for riga in dettaglio_list]
-                    sg.popup_ok(dettaglio_list)
-                    
-                    window['-LISTA_CLASSIFICA-'].update(dettaglio_list)
-                    dettaglio_attivo_per = classifica_manager.standardizza_nome(nome_dettaglio)
-                    
-        if event == '-MOSTRA_TOTALE-':
-            # Modifica della lista per applicare il colore arancione
-            nuova_classifica_list = classifica_manager.mostra_classifica()
-            nuova_classifica_list[0] = sg.Text(nuova_classifica_list[0], text_color='orange')
-            window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-            dettaglio_attivo_per = None
-            window['-NOME_SELEZIONATO-'].update('')
-
-        if event == '-ELIMINA_RIGA-':
-            if dettaglio_attivo_per and values['-LISTA_CLASSIFICA-']:
-                riga_da_eliminare_str = values['-LISTA_CLASSIFICA-'][0]
-                try:
-                    indice_da_eliminare = int(riga_da_eliminare_str.split(']')[0].replace('[','').strip()) - 1
-                    messaggio = classifica_manager.elimina_riga(dettaglio_attivo_per, indice_da_eliminare)
-                    sg.popup_ok(messaggio)
-                    
-                    dettaglio_list = classifica_manager.mostra_dettaglio_classifica(dettaglio_attivo_per)
-                    window['-LISTA_CLASSIFICA-'].update(dettaglio_list)
-                    
-                except (ValueError, IndexError):
-                    sg.popup_error("Errore: Seleziona una riga valida (es. [1]) dal dettaglio per eliminarla.")
-            else:
-                sg.popup_error("Errore: Prima devi visualizzare il dettaglio di un collaboratore e selezionare una riga.")
-
-        if event == '-ELIMINA_COLLABORATORE-':
-            nome_elimina = values['-NOME_SELEZIONATO-'].strip()
-            if not nome_elimina:
-                 sg.popup_error("Errore: Seleziona il nome del collaboratore da eliminare.")
-            else:
-                nome_elimina_std = classifica_manager.standardizza_nome(nome_elimina)
-                conferma = sg.popup_yes_no(f"Sei sicuro di voler eliminare il collaboratore '{nome_elimina_std}' e tutti i suoi dati?", title="Conferma Eliminazione")
-                if conferma == 'Yes':
-                    messaggio = classifica_manager.elimina_collaboratore(nome_elimina)
-                    sg.popup_ok(messaggio)
-                    window['-LISTA_CLASSIFICA-'].update(classifica_manager.mostra_classifica())
-                    dettaglio_attivo_per = None
-                    window['-NOME_SELEZIONATO-'].update('')
-                    
-        if event == '-GENERA_QR-':
-            qrcode_filename, url = genera_qrcode_meeting_day()
-            if url:
-                window['-QR_CODE-'].update(filename=qrcode_filename, size=(200, 200))
-                window['-URL_CHECKIN-'].update(url)
-                sg.popup_ok(f"QR Code generato. Apri il file '{qrcode_filename}' per visualizzarlo.\nURL per il check-in: {url}\nAssicurati che il tuo PC e i telefoni siano sulla stessa rete WiFi.")
-
-        if event == '-GENERA_REPORT_E_CARICA-':
-            sg.popup_ok("Generazione report e caricamento su GitHub in corso. Attendi...")
-            classifica_manager.genera_report_html_e_carica()
-            sg.popup_ok("Report generato e caricato su GitHub con successo!")
-        
-        if event == '-WHATSAPP-':
-            if URL_REPORT_ONLINE:
-                messaggio = f"Ciao a tutti! La classifica Apex Challenge è stata aggiornata! Cliccate qui per vederla in tempo reale: {URL_REPORT_ONLINE}"
-                whatsapp_url = f"https://api.whatsapp.com/send?text={quote(messaggio)}"
-                webbrowser.open(whatsapp_url)
-            else:
-                sg.popup_ok("Devi prima inserire l'URL pubblico del tuo report nel codice, nella variabile 'URL_REPORT_ONLINE'.")
-        
-        if event == '-CRONOLOGIA-':
-            if os.path.exists("cronologia"):
-                subprocess.Popen(['explorer', os.path.abspath("cronologia")])
-            else:
-                sg.popup_ok("La cartella 'cronologia' non esiste ancora.")
-    
-    window.close()
+if __name__ == "__main__":
+    main()
