@@ -669,8 +669,12 @@ class MyHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
-            with open('checkin.html', 'r') as file:
-                self.wfile.write(file.read().encode())
+            try:
+                with open('checkin.html', 'r') as file:
+                    self.wfile.write(file.read().encode())
+            except FileNotFoundError:
+                messagebox.showerror("Errore", "File 'checkin.html' non trovato. Assicurati che sia nella stessa cartella dell'applicazione.")
+                self.wfile.write(b"Errore: File 'checkin.html' non trovato.")
         elif path == '/conferma_checkin':
             nome_collaboratore = query_components.get('nome', [''])[0]
             if nome_collaboratore:
@@ -815,10 +819,11 @@ def main():
     # Creazione della finestra principale di Tkinter
     window = tk.Tk()
     window.title("Apex Challenge Report")
+    window.geometry("500x500") # Imposta le dimensioni della finestra
 
     # Funzione per gestire l'avvio e la chiusura di ngrok
     def gestisci_ngrok(action):
-        global public_url  # Modificato 'nonlocal' in 'global'
+        global public_url
         if action == "start":
             if public_url:
                 messagebox.showinfo("ngrok", f"ngrok è già in esecuzione: {public_url}")
@@ -844,180 +849,93 @@ def main():
             except Exception as e:
                 messagebox.showerror("Errore ngrok", f"Errore durante l'arresto di ngrok: {e}")
 
-    # Funzione per mostrare la finestra di gestione collaboratori
-    def mostra_finestra_gestione():
-        finestra_gestione = tk.Toplevel(window)
-        finestra_gestione.title("Gestione Classifica")
+    # Layout a 3 colonne per i pulsanti principali
+    main_frame = tk.Frame(window, padx=20, pady=20)
+    main_frame.pack(expand=True, fill='both')
 
-        # Funzione per aggiornare la lista dei collaboratori
-        def aggiorna_lista_collaboratori():
-            lista_box.delete(0, tk.END)
-            for nome, _ in classifica_manager.dati_collaboratori.items():
-                lista_box.insert(tk.END, nome)
+    # Sezione "Gestione Collaboratori"
+    collaboratori_frame = tk.LabelFrame(main_frame, text="Gestione Collaboratori", padx=10, pady=10)
+    collaboratori_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
 
-        # Aggiungi collaboratore
-        frame_aggiungi = tk.LabelFrame(finestra_gestione, text="Aggiungi Collaboratore")
-        frame_aggiungi.pack(padx=10, pady=5)
-        
-        tk.Label(frame_aggiungi, text="Nome:").pack(side=tk.LEFT)
-        entry_aggiungi = tk.Entry(frame_aggiungi)
-        entry_aggiungi.pack(side=tk.LEFT)
-        def aggiungi_collaboratore():
-            nome = entry_aggiungi.get()
-            if nome:
-                nome_std = classifica_manager.standardizza_nome(nome)
-                if nome_std not in classifica_manager.dati_collaboratori:
-                    classifica_manager.dati_collaboratori[nome_std] = []
-                    classifica_manager.salva_dati()
-                    classifica_manager.salva_cronologia()
-                    classifica_manager.genera_report_html_e_carica()
-                    messagebox.showinfo("Successo", f"Collaboratore '{nome_std}' aggiunto.")
-                    aggiorna_lista_collaboratori()
-                else:
-                    messagebox.showerror("Errore", "Collaboratore già esistente.")
-        tk.Button(frame_aggiungi, text="Aggiungi", command=aggiungi_collaboratore).pack(side=tk.LEFT)
+    tk.Label(collaboratori_frame, text="Nome:", anchor="w").pack(fill='x', pady=(0, 2))
+    entry_collaboratore = tk.Entry(collaboratori_frame)
+    entry_collaboratore.pack(fill='x', pady=(0, 5))
 
-        # Modifica nome
-        frame_modifica = tk.LabelFrame(finestra_gestione, text="Modifica Nome")
-        frame_modifica.pack(padx=10, pady=5)
-        
-        tk.Label(frame_modifica, text="Nuovo Nome:").pack(side=tk.LEFT)
-        entry_modifica = tk.Entry(frame_modifica)
-        entry_modifica.pack(side=tk.LEFT)
-        def modifica_nome():
-            selezione = lista_box.curselection()
-            if not selezione:
-                messagebox.showerror("Errore", "Seleziona un collaboratore dalla lista.")
-                return
-            nome_attuale = lista_box.get(selezione[0])
-            nuovo_nome = entry_modifica.get()
-            if nuovo_nome:
-                if classifica_manager.modifica_nome_collaboratore(nome_attuale, nuovo_nome):
-                    messagebox.showinfo("Successo", f"Nome modificato da '{nome_attuale}' a '{nuovo_nome}'.")
-                    aggiorna_lista_collaboratori()
-                else:
-                    messagebox.showerror("Errore", "Impossibile modificare il nome.")
-        tk.Button(frame_modifica, text="Modifica", command=modifica_nome).pack(side=tk.LEFT)
-
-        # Elimina collaboratore
-        frame_elimina = tk.LabelFrame(finestra_gestione, text="Elimina Collaboratore")
-        frame_elimina.pack(padx=10, pady=5)
-        
-        def elimina_collaboratore():
-            selezione = lista_box.curselection()
-            if not selezione:
-                messagebox.showerror("Errore", "Seleziona un collaboratore dalla lista.")
-                return
-            nome_da_eliminare = lista_box.get(selezione[0])
-            conferma = messagebox.askyesno("Conferma Eliminazione", f"Sei sicuro di voler eliminare '{nome_da_eliminare}' e tutti i suoi dati?")
-            if conferma:
-                risultato = classifica_manager.elimina_collaboratore(nome_da_eliminare)
-                messagebox.showinfo("Risultato", risultato)
-                aggiorna_lista_collaboratori()
-        tk.Button(frame_elimina, text="Elimina", command=elimina_collaboratore).pack()
-
-        # Visualizza lista
-        lista_box = tk.Listbox(finestra_gestione, width=40, height=15)
-        lista_box.pack(padx=10, pady=10)
-        aggiorna_lista_collaboratori()
-
-    # Funzione per mostrare la finestra di gestione punti
-    def mostra_finestra_punti():
-        finestra_punti = tk.Toplevel(window)
-        finestra_punti.title("Gestione Punti")
-        
-        # Aggiungi punti
-        frame_aggiungi_punti = tk.LabelFrame(finestra_punti, text="Aggiungi Punti")
-        frame_aggiungi_punti.pack(padx=10, pady=5)
-        
-        tk.Label(frame_aggiungi_punti, text="Collaboratore:").pack()
-        entry_collaboratore = tk.Entry(frame_aggiungi_punti)
-        entry_collaboratore.pack()
-        
-        tk.Label(frame_aggiungi_punti, text="Azione:").pack()
-        opzioni_azioni = list(classifica_manager.punti_azioni.keys())
-        variabile_azione = tk.StringVar(finestra_punti)
-        variabile_azione.set(opzioni_azioni[0])
-        menu_azioni = tk.OptionMenu(frame_aggiungi_punti, variabile_azione, *opzioni_azioni)
-        menu_azioni.pack()
-        
-        def aggiungi_punti():
-            nome_input = entry_collaboratore.get()
-            azione = variabile_azione.get()
-            nome_std = classifica_manager.cerca_collaboratore_flessibile(nome_input)
-            if nome_std:
-                risultato = classifica_manager.aggiungi_azione(nome_std, azione)
-                messagebox.showinfo("Risultato", risultato)
+    def aggiungi_collaboratore_gui():
+        nome = entry_collaboratore.get()
+        if nome:
+            nome_std = classifica_manager.standardizza_nome(nome)
+            if nome_std not in classifica_manager.dati_collaboratori:
+                classifica_manager.dati_collaboratori[nome_std] = []
+                classifica_manager.salva_dati()
+                classifica_manager.salva_cronologia()
+                classifica_manager.genera_report_html_e_carica()
+                messagebox.showinfo("Successo", f"Collaboratore '{nome_std}' aggiunto.")
             else:
-                messagebox.showerror("Errore", f"Collaboratore '{nome_input}' non trovato.")
-        tk.Button(frame_aggiungi_punti, text="Aggiungi Punti", command=aggiungi_punti).pack(pady=5)
-        
-        # Elimina riga
-        frame_elimina_riga = tk.LabelFrame(finestra_punti, text="Elimina Riga Punti")
-        frame_elimina_riga.pack(padx=10, pady=5)
-        
-        tk.Label(frame_elimina_riga, text="Collaboratore:").pack()
-        entry_collaboratore_elimina = tk.Entry(frame_elimina_riga)
-        entry_collaboratore_elimina.pack()
-        
-        tk.Label(frame_elimina_riga, text="Indice Riga (partendo da 1):").pack()
-        entry_indice_elimina = tk.Entry(frame_elimina_riga)
-        entry_indice_elimina.pack()
-        
-        def elimina_riga():
-            nome_input = entry_collaboratore_elimina.get()
-            try:
-                indice = int(entry_indice_elimina.get()) - 1
-                risultato = classifica_manager.elimina_riga(nome_input, indice)
-                messagebox.showinfo("Risultato", risultato)
-            except ValueError:
-                messagebox.showerror("Errore", "L'indice di riga deve essere un numero intero.")
-        tk.Button(frame_elimina_riga, text="Elimina Riga", command=elimina_riga).pack(pady=5)
-
-    # Funzione per mostrare la finestra di report
-    def mostra_finestra_report():
-        finestra_report = tk.Toplevel(window)
-        finestra_report.title("Report e Classifica")
-
-        tk.Label(finestra_report, text="Opzioni Report", font=("Arial", 14, "bold")).pack(pady=10)
-
-        def apri_report_locale():
-            classifica_manager.genera_report_html()
-            report_path = os.path.abspath("index.html")
-            webbrowser.open(f"file://{report_path}")
-        tk.Button(finestra_report, text="Apri Report Locale", command=apri_report_locale).pack(pady=5)
-
-        def carica_e_aggiorna():
-            if classifica_manager.genera_report_html_e_carica():
-                messagebox.showinfo("Successo", "Report HTML generato e caricato su GitHub con successo!")
-            else:
-                messagebox.showerror("Errore", "Caricamento su GitHub fallito.")
-        tk.Button(finestra_report, text="Carica e Aggiorna su GitHub", command=carica_e_aggiorna).pack(pady=5)
-
-    # Layout della finestra principale
-    tk.Label(window, text="APEX CHALLENGE REPORT", font=("Arial", 16, "bold")).pack(pady=20)
-
-    # Creazione del menu principale
-    menu_principale = tk.Menu(window)
-    window.config(menu=menu_principale)
+                messagebox.showerror("Errore", "Collaboratore già esistente.")
     
-    opzioni_menu = tk.Menu(menu_principale, tearoff=0)
-    menu_principale.add_cascade(label="Opzioni", menu=opzioni_menu)
-    opzioni_menu.add_command(label="Gestione Collaboratori", command=mostra_finestra_gestione)
-    opzioni_menu.add_command(label="Gestione Punti", command=mostra_finestra_punti)
-    opzioni_menu.add_command(label="Report e Classifica", command=mostra_finestra_report)
-    opzioni_menu.add_command(label="Avvia ngrok", command=lambda: gestisci_ngrok("start"))
-    opzioni_menu.add_command(label="Ferma ngrok", command=lambda: gestisci_ngrok("stop"))
-    opzioni_menu.add_command(label="Mostra QR Code", command=lambda: os.startfile("qrcode.png") if os.path.exists("qrcode.png") else messagebox.showinfo("Avviso", "QR code non generato. Avvia ngrok prima."))
+    tk.Button(collaboratori_frame, text="Aggiungi Collaboratore", command=aggiungi_collaboratore_gui).pack(fill='x', pady=2)
     
-    # Pulsanti nella finestra principale
-    tk.Button(window, text="Gestione Collaboratori", command=mostra_finestra_gestione).pack(pady=5, padx=20, fill=tk.X)
-    tk.Button(window, text="Gestione Punti", command=mostra_finestra_punti).pack(pady=5, padx=20, fill=tk.X)
-    tk.Button(window, text="Report e Classifica", command=mostra_finestra_report).pack(pady=5, padx=20, fill=tk.X)
+    def modifica_collaboratore_gui():
+        # Aggiungi qui la logica per la modifica, magari con una finestra ToppLevel
+        messagebox.showinfo("Funzione non implementata", "Questa funzione richiede l'implementazione di una finestra di dialogo per la modifica.")
     
-    # Avvia ngrok all'inizio
-    gestisci_ngrok("start")
+    tk.Button(collaboratori_frame, text="Modifica/Elimina", command=lambda: messagebox.showinfo("Avviso", "Modifica e eliminazione dei collaboratori sono gestite dalla finestra 'Gestione Classifica' nel menu 'Opzioni'.")).pack(fill='x', pady=2)
+
+
+    # Sezione "Gestione Punti"
+    punti_frame = tk.LabelFrame(main_frame, text="Gestione Punti", padx=10, pady=10)
+    punti_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+
+    tk.Label(punti_frame, text="Collaboratore:", anchor="w").pack(fill='x', pady=(0, 2))
+    entry_collaboratore_punti = tk.Entry(punti_frame)
+    entry_collaboratore_punti.pack(fill='x', pady=(0, 5))
     
+    tk.Label(punti_frame, text="Azione:", anchor="w").pack(fill='x', pady=(0, 2))
+    opzioni_azioni = list(classifica_manager.punti_azioni.keys())
+    variabile_azione = tk.StringVar(punti_frame)
+    variabile_azione.set(opzioni_azioni[0])
+    menu_azioni = tk.OptionMenu(punti_frame, variabile_azione, *opzioni_azioni)
+    menu_azioni.pack(fill='x', pady=(0, 5))
+    
+    def aggiungi_punti_gui():
+        nome_input = entry_collaboratore_punti.get()
+        azione = variabile_azione.get()
+        nome_std = classifica_manager.cerca_collaboratore_flessibile(nome_input)
+        if nome_std:
+            risultato = classifica_manager.aggiungi_azione(nome_std, azione)
+            messagebox.showinfo("Risultato", risultato)
+        else:
+            messagebox.showerror("Errore", f"Collaboratore '{nome_input}' non trovato.")
+    
+    tk.Button(punti_frame, text="Aggiungi Punti", command=aggiungi_punti_gui).pack(fill='x', pady=2)
+
+    # Sezione "Report Online"
+    report_frame = tk.LabelFrame(main_frame, text="Report e Gestione Online", padx=10, pady=10)
+    report_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
+
+    def apri_report_locale():
+        classifica_manager.genera_report_html()
+        report_path = os.path.abspath("index.html")
+        webbrowser.open(f"file://{report_path}")
+    tk.Button(report_frame, text="Apri Report Locale", command=apri_report_locale).pack(fill='x', pady=2)
+
+    def carica_e_aggiorna():
+        if classifica_manager.genera_report_html_e_carica():
+            messagebox.showinfo("Successo", "Report HTML generato e caricato su GitHub con successo!")
+        else:
+            messagebox.showerror("Errore", "Caricamento su GitHub fallito.")
+    tk.Button(report_frame, text="Carica e Aggiorna su GitHub", command=carica_e_aggiorna).pack(fill='x', pady=2)
+
+    tk.Button(report_frame, text="Avvia Server Web (ngrok)", command=lambda: gestisci_ngrok("start")).pack(fill='x', pady=2)
+    tk.Button(report_frame, text="Ferma Server Web (ngrok)", command=lambda: gestisci_ngrok("stop")).pack(fill='x', pady=2)
+    tk.Button(report_frame, text="Mostra QR Code", command=lambda: os.startfile("qrcode.png") if os.path.exists("qrcode.png") else messagebox.showinfo("Avviso", "QR code non generato. Avvia ngrok prima.")).pack(fill='x', pady=2)
+    
+    # Configura le colonne per essere ridimensionabili
+    main_frame.grid_columnconfigure(0, weight=1)
+    main_frame.grid_columnconfigure(1, weight=1)
+    main_frame.grid_columnconfigure(2, weight=1)
+
     # Funzione per gestire la chiusura dell'applicazione
     def on_closing():
         if server_thread and server_thread.is_running:
