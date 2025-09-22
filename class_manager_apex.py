@@ -3,7 +3,7 @@ import os
 import webbrowser
 from datetime import datetime
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog, Toplevel, scrolledtext
 from urllib.parse import quote
 import subprocess
 import qrcode
@@ -116,12 +116,16 @@ class ClassificaManager:
         nuovo_nome_std = self.standardizza_nome(nuovo_nome)
 
         if nome_attuale_std in self.dati_collaboratori:
+            # Controllo per evitare sovrascritture accidentali
+            if nuovo_nome_std in self.dati_collaboratori and nuovo_nome_std != nome_attuale_std:
+                return False, f"Errore: Il nome '{nuovo_nome_std}' esiste già."
+            
             self.dati_collaboratori[nuovo_nome_std] = self.dati_collaboratori.pop(nome_attuale_std)
             self.salva_dati()
             self.salva_cronologia()
             self.genera_report_html_e_carica()
-            return True
-        return False
+            return True, f"Nome '{nome_attuale_std}' modificato in '{nuovo_nome_std}'."
+        return False, f"Errore: Il collaboratore '{nome_attuale_std}' non esiste."
         
     def trova_ultimo_backup(self, history_folder="cronologia"):
         """
@@ -233,17 +237,17 @@ class ClassificaManager:
         nome = self.standardizza_nome(nome_collaboratore)
         
         if nome not in self.dati_collaboratori:
-            return f"Errore: Il collaboratore '{nome}' non esiste."
+            return False, f"Errore: Il collaboratore '{nome}' non esiste."
         
         if not (0 <= indice_riga < len(self.dati_collaboratori[nome])):
-            return f"Errore: L'indice di riga {indice_riga + 1} non è valido per il collaboratore '{nome}'."
+            return False, f"Errore: L'indice di riga {indice_riga + 1} non è valido per il collaboratore '{nome}'."
 
         azione_rimossa = self.dati_collaboratori[nome].pop(indice_riga)
         self.salva_dati()
         self.salva_cronologia()
         self.genera_report_html_e_carica()
         
-        return f"Rimossa l'azione '{azione_rimossa['azione']}' del collaboratore {nome} (rimossi {azione_rimossa['punti']} punti)."
+        return True, f"Rimossa l'azione '{azione_rimossa['azione']}' del collaboratore {nome} (rimossi {azione_rimossa['punti']} punti)."
         
     def elimina_collaboratore(self, nome_collaboratore):
         """
@@ -255,9 +259,9 @@ class ClassificaManager:
             self.salva_dati()
             self.salva_cronologia()
             self.genera_report_html_e_carica()
-            return f"Collaboratore '{nome}' eliminato con successo."
+            return True, f"Collaboratore '{nome}' eliminato con successo."
         else:
-            return f"Errore: Il collaboratore '{nome}' non esiste."
+            return False, f"Errore: Il collaboratore '{nome}' non esiste."
         
     def calcola_punteggio_totale(self, nome_collaboratore):
         """
@@ -620,26 +624,26 @@ class ClassificaManager:
 
                     // Aggiorna il countdown ogni 1 secondo
                     var x = setInterval(function() {{
-                      // Ottieni la data e l'ora attuali
-                      var now = new Date().getTime();
+                        // Ottieni la data e l'ora attuali
+                        var now = new Date().getTime();
 
-                      // Trova la distanza tra adesso e la data del countdown
-                      var distance = countDownDate - now;
+                        // Trova la distanza tra adesso e la data del countdown
+                        var distance = countDownDate - now;
 
-                      // Calcola giorni, ore, minuti e secondi
-                      var days = Math.floor(distance / (1000 * 60 * 60 * 24));
-                      var hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                      var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-                      var seconds = Math.floor((distance % (1000 * 60)) / 1000);
+                        // Calcola giorni, ore, minuti e secondi
+                        var days = Math.floor(distance / (1000 * 60 * 60 * 24));
+                        var hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                        var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                        var seconds = Math.floor((distance % (1000 * 60)) / 1000);
 
-                      // Mostra il risultato nell'elemento con id="countdown-timer"
-                      document.getElementById("countdown-timer").innerHTML = days + "g " + hours + "h " + minutes + "m " + seconds + "s ";
+                        // Mostra il risultato nell'elemento con id="countdown-timer"
+                        document.getElementById("countdown-timer").innerHTML = days + "g " + hours + "h " + minutes + "m " + seconds + "s ";
 
-                      // Se il countdown è finito, scrivi un messaggio
-                      if (distance < 0) {{
-                        clearInterval(x);
-                        document.getElementById("countdown-timer").innerHTML = "Il contest è terminato!";
-                      }}
+                        // Se il countdown è finito, scrivi un messaggio
+                        if (distance < 0) {{
+                            clearInterval(x);
+                            document.getElementById("countdown-timer").innerHTML = "Il contest è terminato!";
+                        }}
                     }}, 1000);
                 </script>
             </body>
@@ -661,6 +665,7 @@ class ClassificaManager:
 # --- Gestione server web e QR code ---
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        global classifica_manager
         parsed_path = urlparse(self.path)
         path = parsed_path.path
         query_components = parse_qs(parsed_path.query)
@@ -718,10 +723,8 @@ class MyHandler(BaseHTTPRequestHandler):
         elif path == '/esegui_checkin':
             nome_collaboratore = query_components.get('nome', [''])[0]
             if nome_collaboratore:
-                # *** MODIFICATO PER USARE LA NUOVA LOGICA DI CONTROLLO IN aggiungi_azione() ***
                 messaggio = classifica_manager.aggiungi_azione(nome_collaboratore, "Meeting day")
                 
-                # Prepara la risposta HTML in base al risultato
                 if "Errore" in messaggio:
                     titolo = "Attenzione!"
                     colore = "#ff6f00"
@@ -729,7 +732,6 @@ class MyHandler(BaseHTTPRequestHandler):
                     titolo = "Check-in Completato!"
                     colore = "#0d47a1"
                 
-                # Risposta HTML finale
                 risposta_finale_html = f"""
                 <!DOCTYPE html>
                 <html lang="it">
@@ -805,10 +807,129 @@ class ServerThread(threading.Thread):
             self.httpd.server_close()
             print("Server arrestato.")
 
+# --- Nuova funzione per la gestione della classifica (spostata qui) ---
+def mostra_gestione_classifica():
+    global classifica_manager, window
+    gestione_window = Toplevel(window)
+    gestione_window.title("Gestione Collaboratori e Punti")
+    gestione_window.geometry("600x650")
+
+    frame_gestione = tk.Frame(gestione_window, padx=10, pady=10)
+    frame_gestione.pack(fill="both", expand=True)
+
+    tk.Label(frame_gestione, text="Seleziona un collaboratore:", font=("Helvetica", 10, "bold")).pack(pady=(0, 5))
+    
+    # Listbox per mostrare i collaboratori
+    listbox_collaboratori = tk.Listbox(frame_gestione, height=15)
+    listbox_collaboratori.pack(fill="x", expand=False, pady=(0, 10))
+    
+    # Funzione per popolare la Listbox
+    def popola_listbox():
+        listbox_collaboratori.delete(0, tk.END)
+        for nome_collaboratore in sorted(classifica_manager.dati_collaboratori.keys()):
+            punteggio = classifica_manager.calcola_punteggio_totale(nome_collaboratore)
+            listbox_collaboratori.insert(tk.END, f"{nome_collaboratore} ({punteggio} punti)")
+            
+    popola_listbox()
+
+    # Funzione per gestire i pulsanti di modifica/eliminazione
+    def seleziona_collaboratore():
+        try:
+            indice = listbox_collaboratori.curselection()[0]
+            nome_selezionato_completo = listbox_collaboratori.get(indice)
+            nome_selezionato = nome_selezionato_completo.split(" (")[0]
+            
+            # Finestra di dialogo per la modifica/eliminazione
+            modifica_window = Toplevel(gestione_window)
+            modifica_window.title(f"Gestisci: {nome_selezionato}")
+            modifica_window.geometry("450x550")
+
+            frame_modifica = tk.Frame(modifica_window, padx=10, pady=10)
+            frame_modifica.pack(fill="both", expand=True)
+
+            # Sezione per modificare il nome
+            tk.Label(frame_modifica, text="Modifica Nome Collaboratore:", font=("Helvetica", 10, "bold")).pack(pady=(0, 5))
+            entry_modifica_nome = tk.Entry(frame_modifica, width=50)
+            entry_modifica_nome.insert(0, nome_selezionato)
+            entry_modifica_nome.pack(pady=(0, 5))
+
+            def esegui_modifica_nome():
+                nuovo_nome = entry_modifica_nome.get()
+                if nuovo_nome and nuovo_nome != nome_selezionato:
+                    successo, messaggio = classifica_manager.modifica_nome_collaboratore(nome_selezionato, nuovo_nome)
+                    if successo:
+                        messagebox.showinfo("Successo", messaggio)
+                        popola_listbox() # Aggiorna la lista
+                        modifica_window.destroy()
+                    else:
+                        messagebox.showerror("Errore", messaggio)
+                else:
+                    messagebox.showinfo("Avviso", "Nessuna modifica del nome.")
+
+            tk.Button(frame_modifica, text="Salva Nuovo Nome", command=esegui_modifica_nome).pack(pady=5)
+            
+            tk.Frame(frame_modifica, height=2, bg="gray").pack(fill="x", pady=10)
+
+            # Sezione per eliminare il collaboratore
+            tk.Label(frame_modifica, text="Elimina Collaboratore:", font=("Helvetica", 10, "bold")).pack(pady=(0, 5))
+            def esegui_eliminazione_collaboratore():
+                if messagebox.askyesno("Conferma", f"Sei sicuro di voler eliminare definitivamente il collaboratore '{nome_selezionato}' e tutti i suoi dati?"):
+                    successo, messaggio = classifica_manager.elimina_collaboratore(nome_selezionato)
+                    if successo:
+                        messagebox.showinfo("Successo", messaggio)
+                        popola_listbox() # Aggiorna la lista
+                        modifica_window.destroy()
+                    else:
+                        messagebox.showerror("Errore", messaggio)
+            tk.Button(frame_modifica, text="Elimina Collaboratore", fg="red", command=esegui_eliminazione_collaboratore).pack(pady=5)
+            
+            tk.Frame(frame_modifica, height=2, bg="gray").pack(fill="x", pady=10)
+
+            # Sezione per eliminare singole azioni
+            tk.Label(frame_modifica, text="Azioni Registrate:", font=("Helvetica", 10, "bold")).pack(pady=(0, 5))
+            
+            # Listbox per mostrare i dettagli delle azioni
+            listbox_azioni = scrolledtext.ScrolledText(frame_modifica, width=50, height=10)
+            listbox_azioni.pack(fill="both", expand=True)
+            
+            def aggiorna_dettagli_azioni():
+                listbox_azioni.config(state=tk.NORMAL)
+                listbox_azioni.delete("1.0", tk.END)
+                dettagli_collaboratore_aggiornati = classifica_manager.mostra_dettaglio_classifica(nome_selezionato)
+                listbox_azioni.insert(tk.INSERT, "\n".join(dettagli_collaboratore_aggiornati))
+                listbox_azioni.config(state=tk.DISABLED)
+
+            aggiorna_dettagli_azioni()
+
+            def esegui_eliminazione_punti():
+                indice_riga_input = simpledialog.askinteger("Elimina Punti", "Inserisci il numero di riga (es. 1, 2, 3...) da eliminare:", parent=modifica_window)
+                if indice_riga_input is not None:
+                    # L'utente ha inserito un numero
+                    indice_riga = int(indice_riga_input) - 1 # Converti l'indice per la lista Python
+                    if indice_riga >= 0:
+                        successo, messaggio = classifica_manager.elimina_riga(nome_selezionato, indice_riga)
+                        if successo:
+                            messagebox.showinfo("Successo", messaggio)
+                            # Aggiorna le listbox dopo l'eliminazione
+                            popola_listbox() 
+                            aggiorna_dettagli_azioni()
+                        else:
+                            messagebox.showerror("Errore", messaggio)
+                    else:
+                        messagebox.showerror("Errore", "Indice non valido. Deve essere un numero maggiore di 0.")
+            
+            tk.Button(frame_modifica, text="Elimina Punti per Riga", command=esegui_eliminazione_punti).pack(pady=5)
+
+        except IndexError:
+            messagebox.showerror("Errore", "Seleziona un collaboratore dalla lista.")
+
+    tk.Button(frame_gestione, text="Gestisci Collaboratore Selezionato", command=seleziona_collaboratore).pack(pady=10)
+
 # --- Interfaccia principale (PySimpleGUI rimosso) ---
 def main():
     global classifica_manager
     global public_url
+    global window
     classifica_manager = ClassificaManager()
     
     server_port = 8000
@@ -819,7 +940,18 @@ def main():
     # Creazione della finestra principale di Tkinter
     window = tk.Tk()
     window.title("Apex Challenge Report")
-    window.geometry("500x500") # Imposta le dimensioni della finestra
+    window.geometry("700x550") # Aumento le dimensioni per la nuova finestra
+    
+    # Crea un menu a tendina
+    menubar = tk.Menu(window)
+    window.config(menu=menubar)
+
+    # Menu Opzioni
+    opzioni_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="Opzioni", menu=opzioni_menu)
+    opzioni_menu.add_command(label="Gestione Classifica", command=mostra_gestione_classifica)
+    opzioni_menu.add_separator()
+    opzioni_menu.add_command(label="Esci", command=window.quit)
 
     # Funzione per gestire l'avvio e la chiusura di ngrok
     def gestisci_ngrok(action):
@@ -831,7 +963,9 @@ def main():
             try:
                 tunnel = ngrok.connect(server_port)
                 public_url = tunnel.public_url
-                qrcode_img = qrcode.make(f"{public_url}/?nome=nome_collaboratore")
+                # L'URL per il QR code dovrebbe puntare al server web locale
+                qrcode_url = f"{public_url}/?nome=nome_collaboratore" 
+                qrcode_img = qrcode.make(qrcode_url)
                 qrcode_img.save("qrcode.png")
                 messagebox.showinfo("ngrok Avviato", f"ngrok è stato avviato con successo. URL: {public_url}")
             except Exception as e:
@@ -848,7 +982,7 @@ def main():
                 messagebox.showinfo("ngrok Arrestato", "ngrok è stato arrestato con successo.")
             except Exception as e:
                 messagebox.showerror("Errore ngrok", f"Errore durante l'arresto di ngrok: {e}")
-
+    
     # Layout a 3 colonne per i pulsanti principali
     main_frame = tk.Frame(window, padx=20, pady=20)
     main_frame.pack(expand=True, fill='both')
@@ -875,12 +1009,6 @@ def main():
                 messagebox.showerror("Errore", "Collaboratore già esistente.")
     
     tk.Button(collaboratori_frame, text="Aggiungi Collaboratore", command=aggiungi_collaboratore_gui).pack(fill='x', pady=2)
-    
-    def modifica_collaboratore_gui():
-        # Aggiungi qui la logica per la modifica, magari con una finestra ToppLevel
-        messagebox.showinfo("Funzione non implementata", "Questa funzione richiede l'implementazione di una finestra di dialogo per la modifica.")
-    
-    tk.Button(collaboratori_frame, text="Modifica/Elimina", command=lambda: messagebox.showinfo("Avviso", "Modifica e eliminazione dei collaboratori sono gestite dalla finestra 'Gestione Classifica' nel menu 'Opzioni'.")).pack(fill='x', pady=2)
 
 
     # Sezione "Gestione Punti"
@@ -921,7 +1049,7 @@ def main():
     tk.Button(report_frame, text="Apri Report Locale", command=apri_report_locale).pack(fill='x', pady=2)
 
     def carica_e_aggiorna():
-        if classifica_manager.genera_report_html_e_carica():
+        if carica_su_github():
             messagebox.showinfo("Successo", "Report HTML generato e caricato su GitHub con successo!")
         else:
             messagebox.showerror("Errore", "Caricamento su GitHub fallito.")
